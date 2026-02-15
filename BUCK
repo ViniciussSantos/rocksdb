@@ -161,6 +161,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "monitoring/in_memory_stats_history.cc",
         "monitoring/instrumented_mutex.cc",
         "monitoring/iostats_context.cc",
+        "monitoring/load_observer.cc",
         "monitoring/perf_context.cc",
         "monitoring/perf_level.cc",
         "monitoring/persistent_stats_history.cc",
@@ -5259,6 +5260,12 @@ cpp_unittest_wrapper(name="ldb_cmd_test",
 
 cpp_unittest_wrapper(name="listener_test",
             srcs=["db/listener_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="load_observer_test",
+            srcs=["monitoring/load_observer_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
