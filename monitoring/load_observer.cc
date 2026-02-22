@@ -93,19 +93,27 @@ void LoadObserver::BGThread() {
 }
 
 void LoadObserver::UpdateStressFactor() {
-  // Calculate normalized PMem latency L_pmem ∈ [0, 1]
   double pmem_latency_norm = CalculateNormalizedPMemLatency();
-  pmem_latency_normalized_.store(pmem_latency_norm, std::memory_order_release);
-  
-  // Calculate CPU utilization U_cpu ∈ [0, 1]
   double cpu_util = CalculateCPUUtilization();
-  cpu_utilization_.store(cpu_util, std::memory_order_release);
-  
-  // Calculate stress factor: σ(t) = w1 * L_pmem + w2 * U_cpu
-  double stress = (options_.pmem_latency_weight * pmem_latency_norm) +
-                  (options_.cpu_utilization_weight * cpu_util);
-  
-  // Clamp to [0, 1]
+
+  // Smoothing using exponential moving average
+  double prev_pmem = pmem_latency_normalized_.load(std::memory_order_acquire);
+  double prev_cpu = cpu_utilization_.load(std::memory_order_acquire);
+
+  const double alpha = 0.8;
+  double new_pmem = (pmem_latency_norm > 0.0)
+                        ? alpha * pmem_latency_norm + (1.0 - alpha) * prev_pmem
+                        : prev_pmem;  // hold last known value
+
+  double new_cpu = (cpu_util > 0.0)
+                       ? alpha * cpu_util + (1.0 - alpha) * prev_cpu
+                       : prev_cpu;  // hold last known value
+
+  pmem_latency_normalized_.store(new_pmem, std::memory_order_release);
+  cpu_utilization_.store(new_cpu, std::memory_order_release);
+
+  double stress = (options_.pmem_latency_weight * new_pmem) +
+                  (options_.cpu_utilization_weight * new_cpu);
   stress = std::min(1.0, std::max(0.0, stress));
   
   current_stress_.store(stress, std::memory_order_release);
