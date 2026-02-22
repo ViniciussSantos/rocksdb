@@ -45,17 +45,25 @@ TEST_F(LoadObserverTest, PMemLatencyRecording) {
   observer.RecordPMemLatency(500);   // Low latency
   observer.RecordPMemLatency(600);
   observer.RecordPMemLatency(700);
-  
-  // Wait for sampling window
-  env_->SleepForMicroseconds(150 * 1000);
-  
-  double normalized = observer.GetNormalizedPMemLatency();
-  
-  // Should be normalized: avg = 600ns
-  // (600 - 300) / (3000 - 300) = 300/2700 ≈ 0.111
-  ASSERT_GT(normalized, 0.0);
-  ASSERT_LT(normalized, 0.3);  // Should be relatively low stress
-  
+
+  // Poll for the expected result instead of a hardcoded sleep
+  double normalized = 0.0;
+  bool success = false;
+
+  // Try for up to 500ms (50 loops * 10ms)
+  for (int i = 0; i < 50; i++) {
+    normalized = observer.GetNormalizedPMemLatency();
+    if (normalized > 0.0) {
+      success = true;
+      break;
+    }
+    env_->SleepForMicroseconds(10 * 1000);  // Check every 10ms
+  }
+
+  ASSERT_TRUE(success)
+      << "Timed out waiting for background thread to update metrics";
+  ASSERT_LT(normalized, 0.3);
+
   observer.Stop();
 }
 
