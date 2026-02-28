@@ -715,6 +715,7 @@ set(SOURCES
         db/compaction/compaction_outputs.cc
         db/compaction/sst_partitioner.cc
         db/compaction/subcompaction_state.cc
+        db/compaction/adaptive_compaction_picker.cc
         db/convenience.cc
         db/db_filesnapshot.cc
         db/db_impl/compacted_db_impl.cc
@@ -1374,6 +1375,7 @@ if(WITH_TESTS)
         db/compaction/compaction_picker_test.cc
         db/compaction/compaction_service_test.cc
         db/compaction/tiered_compaction_test.cc
+        db/compaction/adaptive_compaction_picker_test.cc
         db/comparator_db_test.cc
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
