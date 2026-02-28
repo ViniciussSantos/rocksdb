@@ -1727,6 +1727,78 @@ struct DBOptions {
   CompactionStyleSet calculate_sst_write_lifetime_hint_set = {
       CompactionStyle::kCompactionStyleLevel};
   // End EXPERIMENTAL
+
+  //===========================================================================
+  // Adaptive Compaction Scheduler Options
+  //===========================================================================
+
+  // Enable adaptive compaction scheduling based on system stress
+  // When enabled, compaction decisions consider PMem latency and CPU
+  // utilization Default: false
+  bool enable_adaptive_compaction = false;
+
+  // Sensitivity coefficient α for adaptive scoring
+  // Controls how aggressively compactions are deferred under stress
+  // A_i = S_i × (1 - σ(t))^α
+  // α = 1.0: Linear dampening (gentle)
+  // α = 2.0: Quadratic dampening (recommended)
+  // α = 3.0: Cubic dampening (aggressive)
+  // Default: 2.0
+  double adaptive_compaction_sensitivity = 2.0;
+
+  // Weight for PMem latency in stress calculation (w1)
+  // σ(t) = w1 × L_pmem + w2 × U_cpu
+  // Must satisfy: adaptive_pmem_weight + adaptive_cpu_weight = 1.0
+  // Default: 0.6
+  double adaptive_pmem_weight = 0.6;
+
+  // Weight for CPU utilization in stress calculation (w2)
+  // Default: 0.4
+  double adaptive_cpu_weight = 0.4;
+
+  // Critical compaction threshold
+  // If static score exceeds this, compact regardless of stress
+  // Prevents indefinite deferral of critical compactions
+  // Default: 5.0
+  double adaptive_critical_threshold = 5.0;
+
+  // Enable proactive compaction during low stress periods
+  // Boosts compaction scores when system is idle to reduce debt
+  // Default: true
+  bool adaptive_enable_proactive_compaction = true;
+
+  // Stress threshold for proactive boost
+  // If σ(t) < this value, apply proactive boost
+  // Default: 0.3
+  double adaptive_proactive_threshold = 0.3;
+
+  // Proactive boost multiplier
+  // Score multiplier when stress is below proactive threshold
+  // Default: 1.2
+  double adaptive_proactive_boost = 1.2;
+
+  // Maximum consecutive deferrals before forcing compaction
+  // Prevents starvation during sustained high stress
+  // Default: 10
+  uint32_t adaptive_max_deferrals = 10;
+
+  // PMem baseline latency in nanoseconds (for normalization)
+  // Should be calibrated for your hardware
+  // Default: 300ns (typical Optane DC PMem)
+  uint64_t adaptive_pmem_baseline_latency_ns = 300;
+
+  // PMem maximum expected latency in nanoseconds
+  // Used for normalizing latency to [0, 1] range
+  // Default: 3000ns
+  uint64_t adaptive_pmem_max_latency_ns = 3000;
+
+  // Sampling window for stress calculation in milliseconds
+  // Default: 100ms
+  uint64_t adaptive_sampling_window_ms = 100;
+
+  // Enable detailed adaptive compaction logging
+  // Default: false
+  bool adaptive_enable_logging = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

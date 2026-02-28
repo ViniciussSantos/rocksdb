@@ -140,6 +140,39 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, daily_offpeak_time_utc),
           OptionType::kString, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"adaptive_compaction_sensitivity",
+         {offsetof(struct MutableDBOptions, adaptive_compaction_sensitivity),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"adaptive_pmem_weight",
+         {offsetof(struct MutableDBOptions, adaptive_pmem_weight),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"adaptive_cpu_weight",
+         {offsetof(struct MutableDBOptions, adaptive_cpu_weight),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"adaptive_critical_threshold",
+         {offsetof(struct MutableDBOptions, adaptive_critical_threshold),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"adaptive_max_deferrals",
+         {offsetof(struct MutableDBOptions, adaptive_max_deferrals),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"adaptive_enable_proactive_compaction",
+         {offsetof(struct MutableDBOptions,
+                   adaptive_enable_proactive_compaction),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"adaptive_proactive_threshold",
+         {offsetof(struct MutableDBOptions, adaptive_proactive_threshold),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"adaptive_proactive_boost",
+         {offsetof(struct MutableDBOptions, adaptive_proactive_boost),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -599,6 +632,27 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, wal_write_temperature),
           OptionType::kTemperature, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"enable_adaptive_compaction",
+         {offsetof(struct ImmutableDBOptions, enable_adaptive_compaction),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"adaptive_pmem_baseline_latency_ns",
+         {offsetof(struct ImmutableDBOptions,
+                   adaptive_pmem_baseline_latency_ns),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"adaptive_pmem_max_latency_ns",
+         {offsetof(struct ImmutableDBOptions, adaptive_pmem_max_latency_ns),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"adaptive_sampling_window_ms",
+         {offsetof(struct ImmutableDBOptions, adaptive_sampling_window_ms),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"adaptive_enable_logging",
+         {offsetof(struct ImmutableDBOptions, adaptive_enable_logging),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
@@ -804,7 +858,15 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       metadata_write_temperature(options.metadata_write_temperature),
       wal_write_temperature(options.wal_write_temperature),
       calculate_sst_write_lifetime_hint_set(
-          options.calculate_sst_write_lifetime_hint_set) {
+          options.calculate_sst_write_lifetime_hint_set),
+      enable_adaptive_compaction(options.enable_adaptive_compaction),
+      adaptive_pmem_baseline_latency_ns(
+          options.adaptive_pmem_baseline_latency_ns),
+      adaptive_pmem_max_latency_ns(options.adaptive_pmem_max_latency_ns),
+      adaptive_sampling_window_ms(options.adaptive_sampling_window_ms),
+      adaptive_enable_logging(options.adaptive_enable_logging)
+
+{
   fs = env->GetFileSystem();
   clock = env->GetSystemClock().get();
   logger = info_log.get();
@@ -1045,7 +1107,19 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       max_manifest_file_size(options.max_manifest_file_size),
       max_manifest_space_amp_pct(options.max_manifest_space_amp_pct),
       manifest_preallocation_size(options.manifest_preallocation_size),
-      daily_offpeak_time_utc(options.daily_offpeak_time_utc) {}
+      daily_offpeak_time_utc(options.daily_offpeak_time_utc),
+      enable_adaptive_compaction(options.enable_adaptive_compaction),
+      adaptive_compaction_sensitivity(options.adaptive_compaction_sensitivity),
+      adaptive_pmem_weight(options.adaptive_pmem_weight),
+      adaptive_cpu_weight(options.adaptive_cpu_weight),
+      adaptive_critical_threshold(options.adaptive_critical_threshold),
+      adaptive_enable_proactive_compaction(
+          options.adaptive_enable_proactive_compaction),
+      adaptive_proactive_threshold(options.adaptive_proactive_threshold),
+      adaptive_proactive_boost(options.adaptive_proactive_boost),
+      adaptive_max_deferrals(options.adaptive_max_deferrals)
+
+{}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",

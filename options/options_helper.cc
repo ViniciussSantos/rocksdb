@@ -40,6 +40,22 @@ ConfigOptions::ConfigOptions(const DBOptions& db_opts) : env(db_opts.env) {
 
 Status ValidateOptions(const DBOptions& db_opts,
                        const ColumnFamilyOptions& cf_opts) {
+  if (db_opts.enable_adaptive_compaction) {
+    double weight_sum =
+        db_opts.adaptive_pmem_weight + db_opts.adaptive_cpu_weight;
+    if (std::abs(weight_sum - 1.0) > 1e-6) {
+      return Status::InvalidArgument(
+          "adaptive_pmem_weight + adaptive_cpu_weight must equal 1.0, got " +
+          std::to_string(weight_sum));
+    }
+    if (db_opts.adaptive_pmem_baseline_latency_ns >=
+        db_opts.adaptive_pmem_max_latency_ns) {
+      return Status::InvalidArgument(
+          "adaptive_pmem_baseline_latency_ns must be less than "
+          "adaptive_pmem_max_latency_ns");
+    }
+  }
+
   Status s;
   auto db_cfg = DBOptionsAsConfigurable(db_opts);
   auto cf_cfg = CFOptionsAsConfigurable(cf_opts);
@@ -201,6 +217,29 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.compaction_service = immutable_db_options.compaction_service;
   options.calculate_sst_write_lifetime_hint_set =
       immutable_db_options.calculate_sst_write_lifetime_hint_set;
+  options.enable_adaptive_compaction =
+      immutable_db_options.enable_adaptive_compaction;
+  options.adaptive_pmem_baseline_latency_ns =
+      immutable_db_options.adaptive_pmem_baseline_latency_ns;
+  options.adaptive_pmem_max_latency_ns =
+      immutable_db_options.adaptive_pmem_max_latency_ns;
+  options.adaptive_sampling_window_ms =
+      immutable_db_options.adaptive_sampling_window_ms;
+  options.adaptive_enable_logging =
+      immutable_db_options.adaptive_enable_logging;
+  options.adaptive_compaction_sensitivity =
+      mutable_db_options.adaptive_compaction_sensitivity;
+  options.adaptive_pmem_weight = mutable_db_options.adaptive_pmem_weight;
+  options.adaptive_cpu_weight = mutable_db_options.adaptive_cpu_weight;
+  options.adaptive_critical_threshold =
+      mutable_db_options.adaptive_critical_threshold;
+  options.adaptive_max_deferrals = mutable_db_options.adaptive_max_deferrals;
+  options.adaptive_enable_proactive_compaction =
+      mutable_db_options.adaptive_enable_proactive_compaction;
+  options.adaptive_proactive_threshold =
+      mutable_db_options.adaptive_proactive_threshold;
+  options.adaptive_proactive_boost =
+      mutable_db_options.adaptive_proactive_boost;
 }
 
 ColumnFamilyOptions BuildColumnFamilyOptions(
