@@ -3597,6 +3597,10 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
                                       Env::Priority bg_thread_pri) {
   bool made_progress = false;
   JobContext job_context(next_job_id_.fetch_add(1), true);
+  ColumnFamilyData* cfd =
+      prepicked_compaction->compaction->column_family_data();
+  LoadObserver* observer = cfd ? cfd->GetLoadObserver() : nullptr;
+
   TEST_SYNC_POINT("BackgroundCallCompaction:0");
   if (bg_thread_pri == Env::Priority::BOTTOM) {
     TEST_SYNC_POINT("BackgroundCallCompaction:0:BottomPri");
@@ -3605,6 +3609,10 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
   {
+    std::unique_ptr<CompactionCPUTimeRecorder> cpu_recorder;
+    if (observer) {
+      cpu_recorder = std::make_unique<CompactionCPUTimeRecorder>(observer);
+    }
     InstrumentedMutexLock l(&mutex_);
 
     num_running_compactions_++;
