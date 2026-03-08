@@ -228,9 +228,9 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.adaptive_enable_logging =
       immutable_db_options.adaptive_enable_logging;
   options.adaptive_compaction_sensitivity =
-      mutable_db_options.adaptive_compaction_sensitivity;
-  options.adaptive_pmem_weight = mutable_db_options.adaptive_pmem_weight;
-  options.adaptive_cpu_weight = mutable_db_options.adaptive_cpu_weight;
+      immutable_db_options.adaptive_compaction_sensitivity;
+  options.adaptive_pmem_weight = immutable_db_options.adaptive_pmem_weight;
+  options.adaptive_cpu_weight = immutable_db_options.adaptive_cpu_weight;
   options.adaptive_critical_threshold =
       mutable_db_options.adaptive_critical_threshold;
   options.adaptive_max_deferrals = mutable_db_options.adaptive_max_deferrals;

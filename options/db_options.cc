@@ -140,18 +140,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, daily_offpeak_time_utc),
           OptionType::kString, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
-        {"adaptive_compaction_sensitivity",
-         {offsetof(struct MutableDBOptions, adaptive_compaction_sensitivity),
-          OptionType::kDouble, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
-        {"adaptive_pmem_weight",
-         {offsetof(struct MutableDBOptions, adaptive_pmem_weight),
-          OptionType::kDouble, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
-        {"adaptive_cpu_weight",
-         {offsetof(struct MutableDBOptions, adaptive_cpu_weight),
-          OptionType::kDouble, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
         {"adaptive_critical_threshold",
          {offsetof(struct MutableDBOptions, adaptive_critical_threshold),
           OptionType::kDouble, OptionVerificationType::kNormal,
@@ -653,6 +641,18 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, adaptive_enable_logging),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"adaptive_compaction_sensitivity",
+         {offsetof(struct ImmutableDBOptions, adaptive_compaction_sensitivity),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"adaptive_pmem_weight",
+         {offsetof(struct ImmutableDBOptions, adaptive_pmem_weight),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"adaptive_cpu_weight",
+         {offsetof(struct ImmutableDBOptions, adaptive_cpu_weight),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
@@ -864,7 +864,10 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
           options.adaptive_pmem_baseline_latency_ns),
       adaptive_pmem_max_latency_ns(options.adaptive_pmem_max_latency_ns),
       adaptive_sampling_window_ms(options.adaptive_sampling_window_ms),
-      adaptive_enable_logging(options.adaptive_enable_logging)
+      adaptive_enable_logging(options.adaptive_enable_logging),
+      adaptive_compaction_sensitivity(options.adaptive_compaction_sensitivity),
+      adaptive_pmem_weight(options.adaptive_pmem_weight),
+      adaptive_cpu_weight(options.adaptive_cpu_weight)
 
 {
   fs = env->GetFileSystem();
@@ -1109,9 +1112,6 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       manifest_preallocation_size(options.manifest_preallocation_size),
       daily_offpeak_time_utc(options.daily_offpeak_time_utc),
       enable_adaptive_compaction(options.enable_adaptive_compaction),
-      adaptive_compaction_sensitivity(options.adaptive_compaction_sensitivity),
-      adaptive_pmem_weight(options.adaptive_pmem_weight),
-      adaptive_cpu_weight(options.adaptive_cpu_weight),
       adaptive_critical_threshold(options.adaptive_critical_threshold),
       adaptive_enable_proactive_compaction(
           options.adaptive_enable_proactive_compaction),

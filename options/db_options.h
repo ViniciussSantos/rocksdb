@@ -110,6 +110,9 @@ struct ImmutableDBOptions {
   uint64_t adaptive_pmem_max_latency_ns;
   uint64_t adaptive_sampling_window_ms;
   bool adaptive_enable_logging;
+  double adaptive_compaction_sensitivity;
+  double adaptive_pmem_weight;
+  double adaptive_cpu_weight;
 
   // Beginning convenience/helper objects that are not part of the base
   // DBOptions
@@ -154,9 +157,6 @@ struct MutableDBOptions {
   size_t manifest_preallocation_size;
   std::string daily_offpeak_time_utc;
   bool enable_adaptive_compaction;
-  double adaptive_compaction_sensitivity;
-  double adaptive_pmem_weight;
-  double adaptive_cpu_weight;
   double adaptive_critical_threshold;
   bool adaptive_enable_proactive_compaction;
   double adaptive_proactive_threshold;
