@@ -18,6 +18,7 @@
 
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_source.h"
+#include "db/compaction/adaptive_compaction_picker.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/compaction/compaction_picker_fifo.h"
 #include "db/compaction/compaction_picker_level.h"
@@ -661,8 +662,49 @@ ColumnFamilyData::ColumnFamilyData(
                           internal_stats_->GetBlobFileReadHist(), io_tracer));
     blob_source_.reset(new BlobSource(ioptions_, mutable_cf_options_, db_id,
                                       db_session_id, blob_file_cache_.get()));
+   
+    if (db_options.enable_adaptive_compaction) {
+      LoadObserverOptions obs_options;
+      obs_options.sampling_window_ms = db_options.adaptive_sampling_window_ms;
+      obs_options.pmem_latency_weight = db_options.adaptive_pmem_weight;
+      obs_options.cpu_utilization_weight = db_options.adaptive_cpu_weight;
+      obs_options.baseline_pmem_latency_ns =
+          db_options.adaptive_pmem_baseline_latency_ns;
+      obs_options.max_pmem_latency_ns = db_options.adaptive_pmem_max_latency_ns;
+      obs_options.enable_logging = db_options.adaptive_enable_logging;
 
-    if (ioptions_.compaction_style == kCompactionStyleLevel) {
+      load_observer_ =
+          std::make_unique<LoadObserver>(obs_options, db_options.env);
+      load_observer_->Start();
+    }
+
+    if (db_options.enable_adaptive_compaction &&
+        ioptions_.compaction_style == kCompactionStyleLevel) {
+      AdaptiveCompactionOptions adaptive_opts;
+      adaptive_opts.enabled = true;
+      adaptive_opts.sensitivity_alpha =
+          db_options.adaptive_compaction_sensitivity;
+      // adaptive_opts.critical_threshold =
+      // db_options.adaptive_critical_threshold;
+      // adaptive_opts.enable_proactive_compaction =
+      //     db_options.adaptive_enable_proactive_compaction;
+      // adaptive_opts.proactive_stress_threshold =
+      //     db_options.adaptive_proactive_threshold;
+      // adaptive_opts.proactive_boost_factor =
+      //     db_options.adaptive_proactive_boost;
+      // adaptive_opts.max_consecutive_deferrals =
+      //     db_options.adaptive_max_deferrals;
+      // adaptive_opts.enable_logging = db_options.adaptive_enable_logging;
+
+      compaction_picker_.reset(new AdaptiveLevelCompactionPicker(
+          ioptions_, &internal_comparator_, adaptive_opts,
+          load_observer_.get()));
+
+      ROCKS_LOG_INFO(
+          ioptions_.logger,
+          "Column family %s using AdaptiveLevelCompactionPicker (α=%.2f)\n",
+          GetName().c_str(), db_options.adaptive_compaction_sensitivity);
+    } else if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
           new LevelCompactionPicker(ioptions_, &internal_comparator_));
     } else if (ioptions_.compaction_style == kCompactionStyleUniversal) {
@@ -723,6 +765,9 @@ ColumnFamilyData::ColumnFamilyData(
 // DB mutex held
 ColumnFamilyData::~ColumnFamilyData() {
   assert(refs_.load(std::memory_order_relaxed) == 0);
+  if (load_observer_) {
+    load_observer_->Stop();
+  }
   // remove from linked list
   auto prev = prev_;
   auto next = next_;
@@ -1913,6 +1958,14 @@ const ImmutableOptions& GetImmutableOptions(ColumnFamilyHandle* column_family) {
   assert(cfd);
 
   return cfd->ioptions();
+}
+
+const AdaptiveCompactionStats* ColumnFamilyData::GetAdaptiveStats() const {
+  if (auto* picker = dynamic_cast<AdaptiveLevelCompactionPicker*>(
+          compaction_picker_.get())) {
+    return &picker->GetAdaptivePicker()->GetStats();
+  }
+  return nullptr;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

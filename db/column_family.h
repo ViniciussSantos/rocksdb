@@ -13,7 +13,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-
 #include "cache/cache_reservation_manager.h"
 #include "db/memtable_list.h"
 #include "db/snapshot_checker.h"
@@ -21,6 +20,7 @@
 #include "db/table_properties_collector.h"
 #include "db/write_batch_internal.h"
 #include "db/write_controller.h"
+#include "monitoring/load_observer.h"
 #include "options/cf_options.h"
 #include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/db.h"
@@ -50,6 +50,7 @@ class InstrumentedMutexLock;
 struct SuperVersionContext;
 class BlobFileCache;
 class BlobSource;
+struct AdaptiveCompactionStats;
 
 extern const double kIncSlowdownRatio;
 // This file contains a list of data structures for managing column family
@@ -605,6 +606,12 @@ class ColumnFamilyData {
     return ioptions_.cf_allow_ingest_behind || ioptions_.allow_ingest_behind;
   }
 
+  // Get the Load Observer for adaptive compaction
+  LoadObserver* GetLoadObserver() const { return load_observer_.get(); }
+  
+  // Get adaptive compaction statistics
+  const AdaptiveCompactionStats* GetAdaptiveStats() const;
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(
@@ -713,6 +720,7 @@ class ColumnFamilyData {
   bool mempurge_used_;
 
   std::atomic<uint64_t> next_epoch_number_;
+  std::unique_ptr<LoadObserver> load_observer_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements
