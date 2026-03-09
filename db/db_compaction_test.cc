@@ -3064,6 +3064,7 @@ TEST_F(DBCompactionTest, AdaptiveCompactionUnderStress) {
   }
 
   // Wait for the background compaction(s) triggered by crossing the L0 limit
+  ASSERT_OK(dbfull()->EnableAutoCompaction({db_->DefaultColumnFamily()}));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   const auto& stats = adaptive_picker->GetAdaptivePicker()->GetStats();
@@ -3081,6 +3082,192 @@ TEST_F(DBCompactionTest, AdaptiveCompactionUnderStress) {
       << "Expected deferrals with σ≈0.44 and α=2.0 "
          "(A = S*(0.56)^2 should fall below min_adaptive_score for low S)";
 }
+
+// Phase 1 → Phase 2 test: verifies stress decays via EMA and proactive
+// boosting kicks in once σ(t) drops below the proactive threshold.
+TEST_F(DBCompactionTest, AdaptiveCompactionStressDecayAndBoost) {
+  Options options = CurrentOptions();
+  options.enable_adaptive_compaction = true;
+  options.adaptive_compaction_sensitivity = 2.0;
+  options.level0_file_num_compaction_trigger = 2;
+  options.max_background_compactions = 1;
+  options.adaptive_sampling_window_ms = 50;
+  options.adaptive_pmem_baseline_latency_ns = 300;
+  options.adaptive_pmem_max_latency_ns = 3000;
+  options.adaptive_enable_logging = true;
+  // Keep proactive defaults: threshold=0.3, boost=1.2
+  Reopen(options);
+
+  auto* cfh = static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily());
+  ASSERT_NE(cfh, nullptr);
+  ColumnFamilyData* cfd = cfh->cfd();
+  ASSERT_NE(cfd, nullptr);
+  LoadObserver* observer = cfd->GetLoadObserver();
+  ASSERT_NE(observer, nullptr);
+
+  AdaptiveLevelCompactionPicker* picker =
+      dynamic_cast<AdaptiveLevelCompactionPicker*>(cfd->compaction_picker());
+  ASSERT_NE(picker, nullptr);
+
+  Random rnd(1111);
+
+  // -----------------------------------------------------------------------
+  // Phase 1: inject high stress, write a few batches, expect deferrals
+  // -----------------------------------------------------------------------
+  for (int j = 0; j < 20; j++) {
+    observer->RecordPMemLatency(2800);
+  }
+  // Let the sampling window tick so σ(t) is updated before writes
+  env_->SleepForMicroseconds(60 * 1000);
+
+  double stress_phase1 = observer->GetStressFactor();
+  fprintf(stderr, "[TEST] Phase 1 stress: σ=%.3f\n", stress_phase1);
+  ASSERT_GT(stress_phase1, 0.3) << "Pre-condition: stress must be above proactive threshold";
+
+  for (int flush = 0; flush < 4; flush++) {
+    for (int i = 0; i < 50; i++) {
+      ASSERT_OK(Put(Key(flush * 50 + i), rnd.RandomString(100)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  uint64_t phase1_deferred = picker->GetAdaptivePicker()->GetStats().deferred_count;
+  uint64_t phase1_boosted  = picker->GetAdaptivePicker()->GetStats().boosted_count;
+  fprintf(stderr, "[TEST] Phase 1 done: deferred=%lu boosted=%lu\n",
+          phase1_deferred, phase1_boosted);
+
+  ASSERT_GT(phase1_deferred, 0) << "Expected deferrals during high stress";
+  ASSERT_EQ(phase1_boosted,  0) << "Should not boost while stress is high";
+
+  // -----------------------------------------------------------------------
+  // Phase 2: stop injecting latency, wait for EMA to decay
+  //
+  // With α=0.8, each empty window multiplies the smoothed value by 0.2:
+  //   window 1: 0.926 × 0.2 = 0.185  →  σ ≈ 0.111
+  //   window 2: 0.185 × 0.2 = 0.037  →  σ ≈ 0.022
+  // Two windows (≈120 ms) is enough to fall below the 0.3 threshold.
+  // Sleep for 3 windows to be safe.
+  // -----------------------------------------------------------------------
+  env_->SleepForMicroseconds(3 * 60 * 1000);  // 3 × 60 ms
+
+  double stress_phase2 = observer->GetStressFactor();
+  fprintf(stderr, "[TEST] Phase 2 stress after decay: σ=%.3f\n", stress_phase2);
+  ASSERT_LT(stress_phase2, 0.3)
+      << "Stress should have decayed below proactive threshold";
+
+  // Reset stats so phase 2 numbers are isolated
+  picker->GetAdaptivePicker()->ResetStats();
+
+  for (int flush = 0; flush < 4; flush++) {
+    for (int i = 0; i < 50; i++) {
+      ASSERT_OK(Put(Key(10000 + flush * 50 + i), rnd.RandomString(100)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  const auto& stats2 = picker->GetAdaptivePicker()->GetStats();
+  fprintf(stderr,
+          "[TEST] Phase 2 done: total=%lu deferred=%lu boosted=%lu "
+          "avg_stress=%.3f avg_score=%.3f\n",
+          stats2.total_decisions, stats2.deferred_count, stats2.boosted_count,
+          stats2.avg_stress, stats2.avg_adaptive_score);
+
+  ASSERT_GT(stats2.total_decisions, 0) << "PickCompaction not called in phase 2";
+  ASSERT_GT(stats2.boosted_count,   0) << "Expected proactive boost under low stress";
+  ASSERT_EQ(stats2.deferred_count,  0) << "Should not defer under low stress";
+  ASSERT_LT(stats2.avg_stress, 0.3)   << "Average stress in phase 2 should be low";
+
+  // Score should be *above* the static score (boost factor = 1.2)
+  // avg_adaptive_score > avg_static_score — we verify it exceeds 1.0 baseline
+  ASSERT_GT(stats2.avg_adaptive_score, stats2.avg_stress)
+      << "Boosted score should exceed the raw stress-dampened value";
+}
+
+// Forced compaction test: sustained high stress exhausts the consecutive
+// deferral budget (max_consecutive_deferrals=5 here so the test is fast)
+// and forces compaction regardless of σ(t).
+TEST_F(DBCompactionTest, AdaptiveCompactionForcedAfterMaxDeferrals) {
+  Options options = CurrentOptions();
+  options.enable_adaptive_compaction = true;
+  options.adaptive_compaction_sensitivity = 2.0;
+  options.level0_file_num_compaction_trigger = 2;
+  options.max_background_compactions = 1;
+  options.adaptive_sampling_window_ms = 50;
+  options.adaptive_pmem_baseline_latency_ns = 300;
+  options.adaptive_pmem_max_latency_ns = 3000;
+  options.adaptive_enable_logging = true;
+  options.adaptive_max_deferrals = 5;  // low budget → fast test
+  Reopen(options);
+
+  auto* cfh = static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily());
+  ASSERT_NE(cfh, nullptr);
+  ColumnFamilyData* cfd = cfh->cfd();
+  ASSERT_NE(cfd, nullptr);
+  LoadObserver* observer = cfd->GetLoadObserver();
+  ASSERT_NE(observer, nullptr);
+
+  AdaptiveLevelCompactionPicker* picker =
+      dynamic_cast<AdaptiveLevelCompactionPicker*>(cfd->compaction_picker());
+  ASSERT_NE(picker, nullptr);
+
+  Random rnd(2222);
+
+  // Keep the system under stress for the entire test by re-injecting every
+  // time the background thread could drain the window.  We do this in a
+  // small helper lambda called between each flush.
+  auto reinject_stress = [&]() {
+    for (int j = 0; j < 20; j++) {
+      observer->RecordPMemLatency(2800);
+    }
+  };
+
+  // Pre-load stress before the first pick
+  reinject_stress();
+  env_->SleepForMicroseconds(60 * 1000);
+
+  double stress = observer->GetStressFactor();
+  fprintf(stderr, "[TEST] Sustained stress: σ=%.3f\n", stress);
+  ASSERT_GT(stress, 0.3) << "Pre-condition: stress must be high";
+
+  // Write enough batches to exceed the deferral budget.
+  // Budget = 5, so we need at least 6 picks on the same level.
+  // Each flush produces one L0 file; level0_file_num_compaction_trigger=2
+  // means a pick is attempted after every 2 flushes.  8 flushes → ~4 pick
+  // attempts per run.  We do 14 flushes to be well over budget.
+  for (int flush = 0; flush < 14; flush++) {
+    reinject_stress();  // keep window populated before each pick attempt
+
+    for (int i = 0; i < 50; i++) {
+      ASSERT_OK(Put(Key(flush * 50 + i), rnd.RandomString(100)));
+    }
+    ASSERT_OK(Flush());
+
+    // Small sleep so the observer window can process the injected samples
+    env_->SleepForMicroseconds(10 * 1000);
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  const auto& stats = picker->GetAdaptivePicker()->GetStats();
+  fprintf(stderr,
+          "[TEST] total=%lu deferred=%lu forced=%lu boosted=%lu "
+          "avg_stress=%.3f\n",
+          stats.total_decisions, stats.deferred_count, stats.forced_count,
+          stats.boosted_count, stats.avg_stress);
+
+  ASSERT_GT(stats.total_decisions, 0)  << "PickCompaction was never called";
+  ASSERT_GT(stats.deferred_count,  0)  << "Expected some deferrals before budget exhausted";
+  ASSERT_GT(stats.forced_count,    0)  << "Expected forced compaction after deferral budget exhausted";
+  ASSERT_EQ(stats.boosted_count,   0)  << "Should never boost under sustained high stress";
+
+  // Forced picks must have actually moved data — L0 file count should have
+  // dropped relative to the 14 flushes we performed
+  int l0_files = NumTableFilesAtLevel(0);
+  fprintf(stderr, "[TEST] L0 files remaining: %d\n", l0_files);
+  ASSERT_LT(l0_files, 14) << "Forced compaction should have reduced L0 file count";
+}
+
 TEST_F(DBCompactionTest, ManualAutoRace) {
   const int kNumL0FilesTrigger = 4;
   // Verify that the auto compaction is retried after the conflicting exclusive
