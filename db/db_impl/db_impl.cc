@@ -9,6 +9,7 @@
 #include "db/db_impl/db_impl.h"
 
 #include <cstdint>
+#include "db/compaction/adaptive_compaction_picker.h"
 #ifdef OS_SOLARIS
 #include <alloca.h>
 #endif
@@ -1460,6 +1461,17 @@ Status DBImpl::SetDBOptions(
       wal_size_option_changed = mutable_db_options_.max_total_wal_size !=
                                 new_options.max_total_wal_size;
       mutable_db_options_ = new_options;
+      // Propagate mutable adaptive compaction options to live pickers
+      for (auto* cfd : *versions_->GetColumnFamilySet()) {
+        if (cfd->IsDropped()) continue;
+        if (auto* adaptive = dynamic_cast<AdaptiveLevelCompactionPicker*>(
+                cfd->compaction_picker())) {
+          adaptive->GetAdaptivePicker()->SetSensitivity(
+              new_db_options.adaptive_compaction_sensitivity);
+          // enable/disable toggle is applied directly to the picker
+          // (no-op if value hasn't changed)
+        }
+      }
       file_options_for_compaction_ = FileOptions(new_db_options);
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableWrite(
           file_options_for_compaction_, immutable_db_options_);
