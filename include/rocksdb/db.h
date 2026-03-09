@@ -1444,6 +1444,8 @@ class DB {
     // "rocksdb.blob-cache-pinned-usage" - returns the memory size for the
     //      entries being pinned in blob cache.
     static const std::string kBlobCachePinnedUsage;
+
+    static const std::string kAdaptiveCompactionStats;
   };
 
   // DB implementations export properties about their state via this method.

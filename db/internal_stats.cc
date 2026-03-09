@@ -23,6 +23,7 @@
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_entry_stats.h"
 #include "db/column_family.h"
+#include "db/compaction/adaptive_compaction_picker.h"
 #include "db/db_impl/db_impl.h"
 #include "db/write_stall_stats.h"
 #include "port/port.h"
@@ -329,6 +330,8 @@ static const std::string live_blob_file_garbage_size =
 static const std::string blob_cache_capacity = "blob-cache-capacity";
 static const std::string blob_cache_usage = "blob-cache-usage";
 static const std::string blob_cache_pinned_usage = "blob-cache-pinned-usage";
+static const std::string adaptive_compaction_stats =
+    "adaptive-compaction-stats";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
     rocksdb_prefix + num_files_at_level_prefix;
@@ -449,7 +452,8 @@ const std::string DB::Properties::kBlobCacheUsage =
     rocksdb_prefix + blob_cache_usage;
 const std::string DB::Properties::kBlobCachePinnedUsage =
     rocksdb_prefix + blob_cache_pinned_usage;
-
+const std::string DB::Properties::kAdaptiveCompactionStats =
+    rocksdb_prefix + adaptive_compaction_stats;
 const std::string InternalStats::kPeriodicCFStats =
     DB::Properties::kCFStats + ".periodic";
 const int InternalStats::kMaxNoChangePeriodSinceDump = 8;
@@ -644,6 +648,9 @@ const UnorderedMap<std::string, DBPropertyInfo>
         {DB::Properties::kBlobCachePinnedUsage,
          {false, nullptr, &InternalStats::HandleBlobCachePinnedUsage, nullptr,
           nullptr}},
+        {DB::Properties::kAdaptiveCompactionStats,
+         {false, &InternalStats::HandleAdaptiveCompactionStats, nullptr,
+          nullptr, nullptr}},
 };
 
 InternalStats::InternalStats(int num_levels, SystemClock* clock,
@@ -898,6 +905,19 @@ bool InternalStats::HandleBlobStats(std::string* value, Slice /*suffix*/) {
 
   value->append(oss.str());
 
+  return true;
+}
+
+bool InternalStats::HandleAdaptiveCompactionStats(std::string* value,
+                                                  Slice /*suffix*/) {
+  assert(value);
+  assert(cfd_);
+  const AdaptiveCompactionStats* stats = cfd_->GetAdaptiveStats();
+  if (stats == nullptr) {
+    *value = "Adaptive compaction not enabled for this column family.\n";
+    return true;
+  }
+  *value = stats->ToString();
   return true;
 }
 

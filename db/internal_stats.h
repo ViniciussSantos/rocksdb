@@ -17,6 +17,7 @@
 
 #include "cache/cache_entry_roles.h"
 #include "db/version_set.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/system_clock.h"
 #include "util/hash_containers.h"
 
@@ -666,6 +667,8 @@ class InternalStats {
   static const UnorderedMap<std::string, DBPropertyInfo> ppt_name_to_info;
 
   static const std::string kPeriodicCFStats;
+
+  bool HandleAdaptiveCompactionStats(std::string* value, Slice suffix);
 
  private:
   void DumpDBMapStats(std::map<std::string, std::string>* db_stats);
