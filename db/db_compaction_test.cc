@@ -11,6 +11,7 @@
 
 #include "compaction/compaction_picker_universal.h"
 #include "db/blob/blob_index.h"
+#include "db/compaction/adaptive_compaction_picker.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "env/mock_env.h"
@@ -3010,6 +3011,76 @@ TEST_F(DBCompactionTest, L0_CompactionBug_Issue44_b) {
   } while (ChangeCompactOptions());
 }
 
+TEST_F(DBCompactionTest, AdaptiveCompactionUnderStress) {
+  Options options = CurrentOptions();
+  options.enable_adaptive_compaction = true;
+  options.adaptive_compaction_sensitivity = 2.0;
+  options.level0_file_num_compaction_trigger = 4;
+  options.max_background_compactions = 1;
+  options.adaptive_sampling_window_ms = 50;
+  options.adaptive_pmem_baseline_latency_ns = 300;
+  options.adaptive_pmem_max_latency_ns = 3000;
+  options.adaptive_enable_logging = true;
+  // Let auto-compaction run — that's what calls PickCompaction
+  options.disable_auto_compactions = false;
+
+  Reopen(options);
+
+  auto* cfh = static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily());
+  ASSERT_NE(cfh, nullptr);
+  ColumnFamilyData* cfd = cfh->cfd();
+  ASSERT_NE(cfd, nullptr);
+  LoadObserver* observer = cfd->GetLoadObserver();
+  ASSERT_NE(observer, nullptr) << "LoadObserver not initialised";
+
+  auto* adaptive_picker =
+      dynamic_cast<AdaptiveLevelCompactionPicker*>(cfd->compaction_picker());
+  ASSERT_NE(adaptive_picker, nullptr)
+      << "Picker is not AdaptiveLevelCompactionPicker";
+
+  // Inject stress before writing so it's present when PickCompaction is called
+  for (int j = 0; j < 20; j++) {
+    observer->RecordPMemLatency(2800);
+  }
+  // One full sampling window to register σ≈0.44
+  env_->SleepForMicroseconds(60 * 1000);
+  fprintf(stderr, "[TEST] stress pre-injected, σ=%.3f\n",
+          observer->GetStressFactor());
+
+  // Write + flush past the L0 trigger (4 files needed).
+  // Keep re-injecting stress between flushes so it doesn't age out.
+  Random rnd(301);
+  for (int flush = 0; flush < 6; flush++) {
+    for (int i = 0; i < 100; i++) {
+      ASSERT_OK(Put(Key(flush * 100 + i), rnd.RandomString(100)));
+    }
+    ASSERT_OK(Flush());
+    // Re-inject so the window stays populated while background picks run
+    for (int j = 0; j < 5; j++) {
+      observer->RecordPMemLatency(2800);
+    }
+    fprintf(stderr, "[TEST] flushed batch %d, σ=%.3f\n", flush,
+            observer->GetStressFactor());
+  }
+
+  // Wait for the background compaction(s) triggered by crossing the L0 limit
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  const auto& stats = adaptive_picker->GetAdaptivePicker()->GetStats();
+  fprintf(stderr,
+          "[TEST] total=%lu deferred=%lu boosted=%lu forced=%lu "
+          "avg_stress=%.3f avg_score=%.3f\n",
+          stats.total_decisions, stats.deferred_count, stats.boosted_count,
+          stats.forced_count, stats.avg_stress, stats.avg_adaptive_score);
+
+  ASSERT_GT(stats.total_decisions, 0)
+      << "PickCompaction was never called — "
+         "check that AdaptiveLevelCompactionPicker::PickCompaction calls "
+         "CalculateAdaptiveScore and updates stats_ before delegating";
+  ASSERT_GT(stats.deferred_count, 0)
+      << "Expected deferrals with σ≈0.44 and α=2.0 "
+         "(A = S*(0.56)^2 should fall below min_adaptive_score for low S)";
+}
 TEST_F(DBCompactionTest, ManualAutoRace) {
   const int kNumL0FilesTrigger = 4;
   // Verify that the auto compaction is retried after the conflicting exclusive
