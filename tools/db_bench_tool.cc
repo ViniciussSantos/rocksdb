@@ -834,6 +834,29 @@ DEFINE_bool(read_cache_direct_read, true,
 
 DEFINE_bool(use_keep_filter, false, "Whether to use a noop compaction filter");
 
+// adaptive compaction flags
+
+DEFINE_bool(enable_adaptive_compaction, false,
+            "Enable adaptive compaction based on system load.");
+DEFINE_double(adaptive_compaction_sensitivity, 1.0,
+              "Sensitivity factor for adaptive compaction decisions.");
+DEFINE_double(adaptive_pmem_weight, 0.5,
+              "Weight for PMEM utilization in adaptive decisions.");
+DEFINE_double(adaptive_cpu_weight, 0.5,
+              "Weight for CPU utilization in adaptive decisions.");
+DEFINE_double(adaptive_critical_threshold, 0.9,
+              "System load threshold to trigger critical adaptive measures.");
+DEFINE_bool(adaptive_enable_proactive_compaction, false,
+            "Enable proactive compaction during off-peak hours.");
+DEFINE_double(
+    adaptive_proactive_threshold, 0.2,
+    "System load threshold below which proactive compaction is allowed.");
+DEFINE_double(adaptive_proactive_boost, 1.5,
+              "Boost factor for compaction priority during proactive periods.");
+DEFINE_uint32(
+    adaptive_max_deferrals, 5,
+    "Maximum number of times a compaction can be deferred due to high load.");
+
 static bool ValidateCacheNumshardbits(const char* flagname, int32_t value) {
   if (value >= 20) {
     fprintf(stderr, "Invalid value for --%s: %d, must be < 20\n", flagname,
@@ -4943,6 +4966,19 @@ class Benchmark {
         FLAGS_memtable_op_scan_flush_trigger;
     options.compaction_options_universal.reduce_file_locking =
         FLAGS_universal_reduce_file_locking;
+
+    //adaptive compaction initialization
+    options.enable_adaptive_compaction = FLAGS_enable_adaptive_compaction;
+    options.adaptive_compaction_sensitivity =
+        FLAGS_adaptive_compaction_sensitivity;
+    options.adaptive_pmem_weight = FLAGS_adaptive_pmem_weight;
+    options.adaptive_cpu_weight = FLAGS_adaptive_cpu_weight;
+    options.adaptive_critical_threshold = FLAGS_adaptive_critical_threshold;
+    options.adaptive_enable_proactive_compaction =
+        FLAGS_adaptive_enable_proactive_compaction;
+    options.adaptive_proactive_threshold = FLAGS_adaptive_proactive_threshold;
+    options.adaptive_proactive_boost = FLAGS_adaptive_proactive_boost;
+    options.adaptive_max_deferrals = (uint32_t)FLAGS_adaptive_max_deferrals;
   }
 
   void InitializeOptionsGeneral(Options* opts, ToolHooks& hooks) {
