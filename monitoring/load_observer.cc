@@ -107,9 +107,7 @@ void LoadObserver::UpdateStressFactor() {
   double prev_cpu = cpu_utilization_.load(std::memory_order_acquire);
 
   const double alpha = 0.8;
-  double new_pmem = (pmem_latency_norm > 0.0)
-                        ? alpha * pmem_latency_norm + (1.0 - alpha) * prev_pmem
-                        : prev_pmem;
+  double new_pmem = alpha * pmem_latency_norm + (1.0 - alpha) * prev_pmem;
 
   double new_cpu =
       (cpu_util > 0.0) ? alpha * cpu_util + (1.0 - alpha) * prev_cpu : prev_cpu;
