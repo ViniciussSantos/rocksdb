@@ -337,22 +337,48 @@ class BenchmarkRunner:
         return {"cpu_avg": np.mean(cpu_values), "cpu_max": np.max(cpu_values)}
 
     def _parse_iostat(self, file: Path):
-        util_values = []
+        # Dictionary to hold lists of values per device
+        # Format: { "nvme0n1": {"util": [], "read": [], "write": []}, ... }
+        device_samples = {}
+
         with open(file) as f:
             for line in f:
                 parts = line.split()
-                # Your log shows 22 columns. Let's be safe and check for > 15.
-                # Also ensure it's a device line (doesn't start with a number/timestamp)
-                if len(parts) >= 15 and not parts[0][0].isdigit():
+                # iostat lines have ~22 columns.
+                # Skip headers (starts with 'Device') and timestamps (starts with a digit)
+                if (
+                    len(parts) >= 15
+                    and not parts[0][0].isdigit()
+                    and parts[0] != "Device"
+                ):
+                    dev = parts[0]
+                    if dev not in device_samples:
+                        device_samples[dev] = {"util": [], "read": [], "write": []}
+
                     try:
-                        # %util is always the very last column
-                        val = float(parts[-1].replace(',', '.'))
-                        util_values.append(val)
+                        # Based on your log columns:
+                        # Index 2: rkB/s (Read), Index 8: wkB/s (Write), -1: %util
+                        read_kb = float(parts[2].replace(',', '.'))
+                        write_kb = float(parts[8].replace(',', '.'))
+                        util = float(parts[-1].replace(',', '.'))
+
+                        device_samples[dev]["read"].append(read_kb)
+                        device_samples[dev]["write"].append(write_kb)
+                        device_samples[dev]["util"].append(util)
                     except (ValueError, IndexError):
                         continue
-        if not util_values:
-            return {}
-        return {"util_avg": np.mean(util_values), "util_max": np.max(util_values)}
+
+        results = {}
+        for dev, metrics in device_samples.items():
+            # Only include devices that showed some activity to keep results clean
+            # Or remove this 'if' to see every single device in the system
+            if np.max(metrics["util"]) > 0 or np.max(metrics["read"]) > 0:
+                results[f"{dev}_util_avg"] = float(np.mean(metrics["util"]))
+                results[f"{dev}_util_max"] = float(np.max(metrics["util"]))
+                results[f"{dev}_read_kb_s"] = float(np.mean(metrics["read"]))
+                results[f"{dev}_write_kb_s"] = float(np.mean(metrics["write"]))
+
+        return results
 
 
 class ExperimentSuite:
