@@ -140,27 +140,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, daily_offpeak_time_utc),
           OptionType::kString, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
-        {"adaptive_critical_threshold",
-         {offsetof(struct MutableDBOptions, adaptive_critical_threshold),
-          OptionType::kDouble, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
-        {"adaptive_max_deferrals",
-         {offsetof(struct MutableDBOptions, adaptive_max_deferrals),
-          OptionType::kUInt32T, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
-        {"adaptive_enable_proactive_compaction",
-         {offsetof(struct MutableDBOptions,
-                   adaptive_enable_proactive_compaction),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
-        {"adaptive_proactive_threshold",
-         {offsetof(struct MutableDBOptions, adaptive_proactive_threshold),
-          OptionType::kDouble, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
-        {"adaptive_proactive_boost",
-         {offsetof(struct MutableDBOptions, adaptive_proactive_boost),
-          OptionType::kDouble, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -653,6 +632,28 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, adaptive_cpu_weight),
           OptionType::kDouble, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"adaptive_critical_threshold",
+         {offsetof(struct ImmutableDBOptions, adaptive_critical_threshold),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"adaptive_max_deferrals",
+         {offsetof(struct ImmutableDBOptions, adaptive_max_deferrals),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"adaptive_enable_proactive_compaction",
+         {offsetof(struct ImmutableDBOptions,
+                   adaptive_enable_proactive_compaction),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"adaptive_proactive_threshold",
+         {offsetof(struct ImmutableDBOptions, adaptive_proactive_threshold),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"adaptive_proactive_boost",
+         {offsetof(struct ImmutableDBOptions, adaptive_proactive_boost),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
@@ -867,7 +868,13 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       adaptive_enable_logging(options.adaptive_enable_logging),
       adaptive_compaction_sensitivity(options.adaptive_compaction_sensitivity),
       adaptive_pmem_weight(options.adaptive_pmem_weight),
-      adaptive_cpu_weight(options.adaptive_cpu_weight)
+      adaptive_cpu_weight(options.adaptive_cpu_weight),
+      adaptive_critical_threshold(options.adaptive_critical_threshold),
+      adaptive_enable_proactive_compaction(
+          options.adaptive_enable_proactive_compaction),
+      adaptive_proactive_threshold(options.adaptive_proactive_threshold),
+      adaptive_proactive_boost(options.adaptive_proactive_boost),
+      adaptive_max_deferrals(options.adaptive_max_deferrals)
 
 {
   fs = env->GetFileSystem();
@@ -1110,14 +1117,7 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       max_manifest_file_size(options.max_manifest_file_size),
       max_manifest_space_amp_pct(options.max_manifest_space_amp_pct),
       manifest_preallocation_size(options.manifest_preallocation_size),
-      daily_offpeak_time_utc(options.daily_offpeak_time_utc),
-      enable_adaptive_compaction(options.enable_adaptive_compaction),
-      adaptive_critical_threshold(options.adaptive_critical_threshold),
-      adaptive_enable_proactive_compaction(
-          options.adaptive_enable_proactive_compaction),
-      adaptive_proactive_threshold(options.adaptive_proactive_threshold),
-      adaptive_proactive_boost(options.adaptive_proactive_boost),
-      adaptive_max_deferrals(options.adaptive_max_deferrals)
+      daily_offpeak_time_utc(options.daily_offpeak_time_utc)
 
 {}
 

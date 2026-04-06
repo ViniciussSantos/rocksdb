@@ -232,14 +232,14 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.adaptive_pmem_weight = immutable_db_options.adaptive_pmem_weight;
   options.adaptive_cpu_weight = immutable_db_options.adaptive_cpu_weight;
   options.adaptive_critical_threshold =
-      mutable_db_options.adaptive_critical_threshold;
-  options.adaptive_max_deferrals = mutable_db_options.adaptive_max_deferrals;
+      immutable_db_options.adaptive_critical_threshold;
+  options.adaptive_max_deferrals = immutable_db_options.adaptive_max_deferrals;
   options.adaptive_enable_proactive_compaction =
-      mutable_db_options.adaptive_enable_proactive_compaction;
+      immutable_db_options.adaptive_enable_proactive_compaction;
   options.adaptive_proactive_threshold =
-      mutable_db_options.adaptive_proactive_threshold;
+      immutable_db_options.adaptive_proactive_threshold;
   options.adaptive_proactive_boost =
-      mutable_db_options.adaptive_proactive_boost;
+      immutable_db_options.adaptive_proactive_boost;
 }
 
 ColumnFamilyOptions BuildColumnFamilyOptions(

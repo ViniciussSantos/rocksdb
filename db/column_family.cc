@@ -684,17 +684,17 @@ ColumnFamilyData::ColumnFamilyData(
       adaptive_opts.enabled = true;
       adaptive_opts.sensitivity_alpha =
           db_options.adaptive_compaction_sensitivity;
-      // adaptive_opts.critical_threshold =
-      // db_options.adaptive_critical_threshold;
-      // adaptive_opts.enable_proactive_compaction =
-      //     db_options.adaptive_enable_proactive_compaction;
-      // adaptive_opts.proactive_stress_threshold =
-      //     db_options.adaptive_proactive_threshold;
-      // adaptive_opts.proactive_boost_factor =
-      //     db_options.adaptive_proactive_boost;
-      // adaptive_opts.max_consecutive_deferrals =
-      //     db_options.adaptive_max_deferrals;
-      // adaptive_opts.enable_logging = db_options.adaptive_enable_logging;
+      adaptive_opts.critical_threshold =
+      db_options.adaptive_critical_threshold;
+      adaptive_opts.enable_proactive_compaction =
+          db_options.adaptive_enable_proactive_compaction;
+      adaptive_opts.proactive_stress_threshold =
+          db_options.adaptive_proactive_threshold;
+      adaptive_opts.proactive_boost_factor =
+          db_options.adaptive_proactive_boost;
+      adaptive_opts.max_consecutive_deferrals =
+          db_options.adaptive_max_deferrals;
+      adaptive_opts.enable_logging = db_options.adaptive_enable_logging;
 
       compaction_picker_.reset(new AdaptiveLevelCompactionPicker(
           ioptions_, &internal_comparator_, adaptive_opts,
