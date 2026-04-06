@@ -186,7 +186,8 @@ class BenchmarkRunner:
             "-c",
             self.cpu_cores,
             self.db_bench_path,
-            f"--benchmarks={benchmark_type}",
+            f"--benchmarks={benchmark_type},stats",
+            "--statistics",
         ]
 
         cmd.extend(config.to_db_bench_args(str(db_path)))
