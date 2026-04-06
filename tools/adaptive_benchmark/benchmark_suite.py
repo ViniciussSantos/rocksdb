@@ -313,7 +313,9 @@ class ExperimentSuite:
     def run_config(self, config, benchmark):
         for i in range(self.repeat):
             print(f"\nRun {i + 1}/{self.repeat} - {config.name}")
+
             result = self.runner.run_benchmark(config, benchmark)
+
             if result:
                 result["run_id"] = i + 1
                 self.results.append(result)
@@ -434,15 +436,45 @@ class ExperimentSuite:
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--db-bench", required=True)
-    parser.add_argument("--output-dir", default="./results")
-    parser.add_argument("--repeat", type=int, default=1)
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--fast", action="store_true")
-    parser.add_argument("--cpu-cores", default="0-7")
-    parser.add_argument("--no-telemetry", action="store_true")
-    parser.add_argument("--warmup-ops", type=int, default=100_000)
+    parser = argparse.ArgumentParser(
+        description='Adaptive Compaction Scheduler Benchmark Suite'
+    )
+    parser.add_argument("--db-bench", required=True, help="Path to db_bench binary")
+    parser.add_argument(
+        "--output-dir", default="./results", help="Output directory for results"
+    )
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="Number of times to repeat each experiment",
+    )
+    parser.add_argument(
+        "--experiments",
+        nargs='+',
+        choices=['waf', 'latency', 'scaling', 'mixed', 'burst', 'all'],
+        default=['all'],
+        help="Which experiments to run",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print commands without executing"
+    )
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="Run with reduced operation counts for quick testing",
+    )
+    parser.add_argument(
+        "--cpu-cores", default="0-3", help="CPU cores to pin processes to (e.g., '0-7')"
+    )
+    parser.add_argument(
+        "--no-telemetry",
+        action="store_true",
+        help="Disable CPU/IO telemetry collection",
+    )
+    parser.add_argument(
+        "--warmup-ops", type=int, default=100_000, help="Number of warmup operations"
+    )
 
     args = parser.parse_args()
 
@@ -456,8 +488,32 @@ def main():
     )
     suite = ExperimentSuite(runner, args.repeat)
 
-    suite.run_waf()
+    # Map experiment names to methods
+    experiment_map = {
+        'waf': suite.run_waf,
+        'latency': suite.run_latency,
+        'scaling': suite.run_scaling,
+        'mixed': suite.run_mixed,
+        'burst': suite.run_burst,
+    }
 
+    # Determine which experiments to run
+    if 'all' in args.experiments:
+        experiments_to_run = experiment_map.keys()
+    else:
+        experiments_to_run = args.experiments
+
+    # Run selected experiments
+    print(f"\n{'=' * 80}")
+    print(f"Starting Benchmark Suite")
+    print(f"Experiments: {', '.join(experiments_to_run)}")
+    print(f"Repeats: {args.repeat}")
+    print(f"{'=' * 80}\n")
+
+    for exp_name in experiments_to_run:
+        experiment_map[exp_name]()
+
+    # Save results
     if not args.dry_run:
         suite.save(Path(args.output_dir) / "results.json")
 
