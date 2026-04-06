@@ -3,13 +3,45 @@
 import subprocess
 import json
 import time
-import os
-import sys
+import numpy as np
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Dict
 import argparse
 import re
+
+
+def aggregate_results(results):
+    grouped = {}
+
+    for r in results:
+        key = r["config"]
+        grouped.setdefault(key, []).append(r["metrics"])
+
+    aggregated = {}
+
+    for key, runs in grouped.items():
+        metrics = {}
+
+        for metric in runs[0].keys():
+            values = [r[metric] for r in runs if r[metric] > 0]
+
+            if not values:
+                continue
+
+            arr = np.array(values)
+
+            metrics[metric] = {
+                "mean": float(np.mean(arr)),
+                "std": float(np.std(arr)),
+                "min": float(np.min(arr)),
+                "max": float(np.max(arr)),
+                "ci95": float(1.96 * np.std(arr) / np.sqrt(len(arr))),
+            }
+
+        aggregated[key] = metrics
+
+    return aggregated
 
 
 @dataclass
@@ -143,8 +175,10 @@ class ExperimentSuite:
             self.run_config(c, "fillrandom")
 
     def save(self, path):
+        aggregated = aggregate_results(self.results)
+
         with open(path, "w") as f:
-            json.dump(self.results, f, indent=2)
+            json.dump({"raw": self.results, "aggregated": aggregated}, f, indent=2)
 
 
 def main():
