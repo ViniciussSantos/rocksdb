@@ -106,16 +106,18 @@ class BenchmarkRunner:
     def _parse_output(self, file: Path) -> Dict:
         text = file.read_text()
 
-        def extract(pattern, default=0.0):
-            m = re.search(pattern, text)
-            return float(m.group(1)) if m else default
+        def extract_float(pattern):
+            m = re.search(pattern, text, re.IGNORECASE)
+            return float(m.group(1)) if m else 0.0
 
         return {
-            "ops_per_sec": extract(r"(\d+\.\d+)\s+ops/sec"),
-            "p50_latency_us": extract(r"P50.*?:\s+(\d+)"),
-            "p99_latency_us": extract(r"P99.*?:\s+(\d+)"),
-            "p999_latency_us": extract(r"P99\.9.*?:\s+(\d+)"),
-            "write_amplification": extract(r"write amplification.*?(\d+\.\d+)"),
+            "ops_per_sec": extract_float(r"([\d\.eE\+\-]+)\s+ops/sec"),
+            "p50_latency_us": extract_float(r"P50.*?:\s+([\d\.]+)"),
+            "p95_latency_us": extract_float(r"P95.*?:\s+([\d\.]+)"),
+            "p99_latency_us": extract_float(r"P99[^\.].*?:\s+([\d\.]+)"),
+            "p999_latency_us": extract_float(r"P99\.9.*?:\s+([\d\.]+)"),
+            "avg_latency_us": extract_float(r"Average.*?:\s+([\d\.]+)"),
+            "write_amplification": extract_float(r"write amplification.*?([\d\.]+)"),
         }
 
 
