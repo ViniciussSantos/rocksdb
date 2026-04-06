@@ -230,30 +230,82 @@ class BenchmarkRunner:
         return {"cpu": cpu_stats, "io": io_stats}
 
     def _parse_output(self, file: Path):
-        text = file.read_text()
+        content = file.read_text()
 
-        def extract(pattern):
+        def extract(pattern, text=content):
             m = re.search(pattern, text, re.IGNORECASE)
-            return float(m.group(1)) if m else 0.0
+            if not m:
+                return 0.0
+            # Convert comma-decimals to dots just in case
+            val = m.group(1).replace(',', '.')
+            return float(val)
 
-        # Handle kops/sec or Mops/sec scaling
-        ops_val = extract(r"([\d\.]+)\s+(k|M)?ops/sec")
-        if "Mops/sec" in text:
-            ops_val *= 1_000_000
-        elif "kops/sec" in text:
-            ops_val *= 1_000
+        # 1. Main Benchmark Result (Ops/Sec)
+        # Matches: fillrandom : 12.186 micros/op 82061 ops/sec ...
+        ops_val = 0.0
+        ops_match = re.search(
+            r":\s+[\d\.,]+\s+micros/op\s+([\d\.,]+)\s+([kMG]?)ops/sec",
+            content,
+            re.IGNORECASE,
+        )
+        if ops_match:
+            ops_val = float(ops_match.group(1).replace(',', '.'))
+            unit = ops_match.group(2).lower()
+            if unit == 'k':
+                ops_val *= 1_000
+            elif unit == 'm':
+                ops_val *= 1_000_000
+            elif unit == 'g':
+                ops_val *= 1_000_000_000
 
-        return {
+        # 2. Scoped Latency (Prevents picking up 0.0 from internal stats)
+        # We look for the "Percentiles:" line specifically
+        lat_line = ""
+        for line in content.splitlines():
+            if line.strip().startswith("Percentiles:"):
+                lat_line = line
+                break
+
+        # If the Percentiles line isn't found, use the whole text (fallback)
+        lat_search_area = lat_line if lat_line else content
+
+        metrics = {
             "ops_per_sec": ops_val,
-            "p50_latency_us": extract(r"P50.*?:\s+([\d\.]+)"),
-            "p95_latency_us": extract(r"P95.*?:\s+([\d\.]+)"),
-            "p99_latency_us": extract(r"P99[^\.].*?:\s+([\d\.]+)"),
-            "p999_latency_us": extract(r"P99\.9.*?:\s+([\d\.]+)"),
+            "p50_latency_us": extract(r"P50.*?:\s+([\d\.]+)", lat_search_area),
+            "p95_latency_us": extract(r"P95.*?:\s+([\d\.]+)", lat_search_area),
+            "p99_latency_us": extract(r"P99[^\.].*?:\s+([\d\.]+)", lat_search_area),
+            "p999_latency_us": extract(r"P99\.9.*?:\s+([\d\.]+)", lat_search_area),
             "avg_latency_us": extract(r"Average.*?:\s+([\d\.]+)"),
-            "write_amplification": extract(
-                r"(?:write amplification|Write Amp).*?([\d\.]+)"
-            ),
         }
+
+        # 3. Compaction Table Stats (W-Amp, CPU, etc.)
+        for line in content.splitlines():
+            if line.strip().startswith("Sum"):
+                parts = line.split()
+                try:
+                    # Based on your logs:
+                    # 10=Wnew(GB), 12=W-Amp, 16=CompMergeCPU, 17=Comp(cnt)
+                    metrics["write_amplification"] = float(parts[12].replace(',', '.'))
+                    metrics["compaction_cpu_sec"] = float(parts[16].replace(',', '.'))
+                    metrics["compaction_count"] = int(parts[17])
+                    metrics["total_gb_written"] = float(parts[10].replace(',', '.'))
+                except (IndexError, ValueError):
+                    pass
+                break
+
+        # 4. Extra Telemetry from --statistics (Converted micros to seconds)
+        metrics["stall_time_sec"] = (
+            extract(r"rocksdb\.stall\.micros.*?SUM\s+:\s+(\d+)") / 1_000_000.0
+        )
+        metrics["flush_time_sec"] = (
+            extract(r"rocksdb\.memtable\.flush\.time.*?SUM\s+:\s+(\d+)") / 1_000_000.0
+        )
+        metrics["compaction_time_total_sec"] = (
+            extract(r"rocksdb\.compaction\.times\.micros.*?SUM\s+:\s+(\d+)")
+            / 1_000_000.0
+        )
+
+        return metrics
 
     def _parse_pidstat(self, file: Path):
         cpu_values = []
@@ -507,7 +559,7 @@ def main():
 
     # Run selected experiments
     print(f"\n{'=' * 80}")
-    print(f"Starting Benchmark Suite")
+    print("Starting Benchmark Suite")
     print(f"Experiments: {', '.join(experiments_to_run)}")
     print(f"Repeats: {args.repeat}")
     print(f"{'=' * 80}\n")
