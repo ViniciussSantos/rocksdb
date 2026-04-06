@@ -836,6 +836,15 @@ DEFINE_bool(use_keep_filter, false, "Whether to use a noop compaction filter");
 
 // adaptive compaction flags
 
+DEFINE_uint64(adaptive_pmem_baseline_latency_ns, 300,
+              "PMem baseline latency in nanoseconds for normalization.");
+DEFINE_uint64(adaptive_pmem_max_latency_ns, 3000,
+              "PMem maximum expected latency in nanoseconds.");
+DEFINE_uint64(adaptive_sampling_window_ms, 100,
+              "Sampling window for stress calculation in milliseconds.");
+DEFINE_bool(adaptive_enable_logging, false,
+            "Enable detailed adaptive compaction logging.");
+
 DEFINE_bool(enable_adaptive_compaction, false,
             "Enable adaptive compaction based on system load.");
 DEFINE_double(adaptive_compaction_sensitivity, 1.0,
@@ -4967,8 +4976,13 @@ class Benchmark {
     options.compaction_options_universal.reduce_file_locking =
         FLAGS_universal_reduce_file_locking;
 
-    //adaptive compaction initialization
+    // adaptive compaction initialization
     options.enable_adaptive_compaction = FLAGS_enable_adaptive_compaction;
+    options.adaptive_pmem_baseline_latency_ns =
+        FLAGS_adaptive_pmem_baseline_latency_ns;
+    options.adaptive_pmem_max_latency_ns = FLAGS_adaptive_pmem_max_latency_ns;
+    options.adaptive_sampling_window_ms = FLAGS_adaptive_sampling_window_ms;
+    options.adaptive_enable_logging = FLAGS_adaptive_enable_logging;
     options.adaptive_compaction_sensitivity =
         FLAGS_adaptive_compaction_sensitivity;
     options.adaptive_pmem_weight = FLAGS_adaptive_pmem_weight;
