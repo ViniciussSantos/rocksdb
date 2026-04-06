@@ -101,55 +101,141 @@ class BenchmarkConfig:
 
 
 class BenchmarkRunner:
-    def __init__(self, db_bench_path: str, output_dir: str, dry_run=False):
+    def __init__(
+        self,
+        db_bench_path: str,
+        output_dir: str,
+        dry_run=False,
+        cpu_cores="0-3",
+        warmup_ops=100_000,
+        enable_telemetry=True,
+    ):
+
         self.db_bench_path = db_bench_path
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
         self.dry_run = dry_run
+        self.cpu_cores = cpu_cores
+        self.warmup_ops = warmup_ops
+        self.enable_telemetry = enable_telemetry
 
     def run_benchmark(self, config: BenchmarkConfig, benchmark_type="fillrandom"):
+
+        print(f"\n=== Running {config.name} ===")
 
         db_path = self.output_dir / f"db_{config.name}"
         if db_path.exists():
             subprocess.run(["rm", "-rf", str(db_path)])
         db_path.mkdir(parents=True)
 
-        cmd = [self.db_bench_path]
-        cmd.append(f"--benchmarks={benchmark_type}")
-        cmd.extend(config.to_db_bench_args(str(db_path)))
+        # --- Warmup ---
+        self._warmup(db_path)
 
-        print("\nCMD:", " ".join(cmd))
+        # --- Actual run ---
+        cmd = self._build_cmd(config, benchmark_type, db_path)
 
         if self.dry_run:
+            print("DRY RUN:", " ".join(cmd))
             return None
 
         output_file = self.output_dir / f"{config.name}.txt"
 
+        telemetry = {}
+        telemetry_proc = None
+
+        if self.enable_telemetry:
+            telemetry_proc = self._start_telemetry(config.name)
+
         start = time.time()
+
         with open(output_file, "w") as f:
-            subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT)
+            proc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT)
+            proc.wait()
+
         duration = time.time() - start
+
+        if telemetry_proc:
+            telemetry = self._stop_telemetry(telemetry_proc)
 
         metrics = self._parse_output(output_file)
         metrics["duration_sec"] = duration
 
-        return {"config": config.name, "metrics": metrics}
+        return {"config": config.name, "metrics": metrics, "telemetry": telemetry}
 
-    def _parse_output(self, file: Path) -> Dict:
+    def _warmup(self, db_path: Path):
+        print("-> Warmup phase")
+
+        cmd = [
+            "taskset",
+            "-c",
+            self.cpu_cores,
+            self.db_bench_path,
+            f"--db={db_path}",
+            "--benchmarks=fillrandom",
+            f"--num={self.warmup_ops}",
+            "--threads=1",
+        ]
+
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def _build_cmd(self, config, benchmark_type, db_path):
+
+        cmd = [
+            "taskset",
+            "-c",
+            self.cpu_cores,
+            self.db_bench_path,
+            f"--benchmarks={benchmark_type}",
+        ]
+
+        cmd.extend(config.to_db_bench_args(str(db_path)))
+        return cmd
+
+    def _start_telemetry(self, name):
+
+        pidstat_file = self.output_dir / f"{name}_pidstat.log"
+        iostat_file = self.output_dir / f"{name}_iostat.log"
+
+        pidstat = subprocess.Popen(
+            ["pidstat", "-dur", "1"],
+            stdout=open(pidstat_file, "w"),
+            stderr=subprocess.DEVNULL,
+        )
+
+        iostat = subprocess.Popen(
+            ["iostat", "-dx", "1"],
+            stdout=open(iostat_file, "w"),
+            stderr=subprocess.DEVNULL,
+        )
+
+        return (pidstat, iostat, pidstat_file, iostat_file)
+
+    def _stop_telemetry(self, procs):
+
+        pidstat, iostat, pid_file, io_file = procs
+
+        pidstat.terminate()
+        iostat.terminate()
+
+        return {"pidstat_file": str(pid_file), "iostat_file": str(io_file)}
+
+    def _parse_output(self, file: Path):
+
         text = file.read_text()
 
-        def extract_float(pattern):
+        def extract(pattern):
             m = re.search(pattern, text, re.IGNORECASE)
             return float(m.group(1)) if m else 0.0
 
         return {
-            "ops_per_sec": extract_float(r"([\d\.eE\+\-]+)\s+ops/sec"),
-            "p50_latency_us": extract_float(r"P50.*?:\s+([\d\.]+)"),
-            "p95_latency_us": extract_float(r"P95.*?:\s+([\d\.]+)"),
-            "p99_latency_us": extract_float(r"P99[^\.].*?:\s+([\d\.]+)"),
-            "p999_latency_us": extract_float(r"P99\.9.*?:\s+([\d\.]+)"),
-            "avg_latency_us": extract_float(r"Average.*?:\s+([\d\.]+)"),
-            "write_amplification": extract_float(r"write amplification.*?([\d\.]+)"),
+            "ops_per_sec": extract(r"([\d\.eE\+\-]+)\s+ops/sec"),
+            "p50_latency_us": extract(r"P50.*?:\s+([\d\.]+)"),
+            "p95_latency_us": extract(r"P95.*?:\s+([\d\.]+)"),
+            "p99_latency_us": extract(r"P99[^\.].*?:\s+([\d\.]+)"),
+            "p999_latency_us": extract(r"P99\.9.*?:\s+([\d\.]+)"),
+            "avg_latency_us": extract(r"Average.*?:\s+([\d\.]+)"),
+            "write_amplification": extract(r"write amplification.*?([\d\.]+)"),
         }
 
 
@@ -188,10 +274,20 @@ def main():
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--fast", action="store_true")
+    parser.add_argument("--cpu-cores", default="0-7")
+    parser.add_argument("--no-telemetry", action="store_true")
+    parser.add_argument("--warmup-ops", type=int, default=100_000)
 
     args = parser.parse_args()
 
-    runner = BenchmarkRunner(args.db_bench, args.output_dir, args.dry_run)
+    runner = BenchmarkRunner(
+        args.db_bench,
+        args.output_dir,
+        dry_run=args.dry_run,
+        cpu_cores=args.cpu_cores,
+        warmup_ops=args.warmup_ops,
+        enable_telemetry=not args.no_telemetry,
+    )
     suite = ExperimentSuite(runner, args.repeat)
 
     suite.run_waf()
