@@ -307,26 +307,130 @@ class ExperimentSuite:
         self.repeat = repeat
         self.results = []
 
+    # ------------------------------------------------------------
+    # Core execution helper
+    # ------------------------------------------------------------
     def run_config(self, config, benchmark):
         for i in range(self.repeat):
             print(f"\nRun {i + 1}/{self.repeat} - {config.name}")
             result = self.runner.run_benchmark(config, benchmark)
             if result:
+                result["run_id"] = i + 1
                 self.results.append(result)
 
+    # ------------------------------------------------------------
+    # Experiment 1: Write Amplification
+    # ------------------------------------------------------------
     def run_waf(self):
+        print("\n=== Experiment: Write Amplification ===")
+
         configs = [
-            BenchmarkConfig("baseline_10M", 1_000_000, 1000, 1, False),
-            BenchmarkConfig("adaptive_alpha2", 1_000_000, 1000, 1, True),
+            BenchmarkConfig("baseline_waf", 1_000_000, 1000, 1, False),
+            BenchmarkConfig(
+                "adaptive_alpha1", 1_000_000, 1000, 1, True, adaptive_sensitivity=1.0
+            ),
+            BenchmarkConfig(
+                "adaptive_alpha2", 1_000_000, 1000, 1, True, adaptive_sensitivity=2.0
+            ),
+            BenchmarkConfig(
+                "adaptive_alpha3", 1_000_000, 1000, 1, True, adaptive_sensitivity=3.0
+            ),
         ]
+
         for c in configs:
             self.run_config(c, "fillrandom")
 
+    # ------------------------------------------------------------
+    # Experiment 2: Latency under load
+    # ------------------------------------------------------------
+    def run_latency(self):
+        print("\n=== Experiment: Latency ===")
+
+        configs = [
+            BenchmarkConfig("baseline_latency", 500_000, 2000, 8, False),
+            BenchmarkConfig("adaptive_latency", 500_000, 2000, 8, True),
+        ]
+
+        for c in configs:
+            self.run_config(c, "fillrandom")
+
+    # ------------------------------------------------------------
+    # Experiment 3: Thread scaling
+    # ------------------------------------------------------------
+    def run_scaling(self):
+        print("\n=== Experiment: Scaling ===")
+
+        for threads in [1, 2, 4, 8, 16]:
+            baseline = BenchmarkConfig(
+                f"baseline_scaling_{threads}",
+                300_000,
+                1000,
+                threads,
+                False,
+            )
+
+            adaptive = BenchmarkConfig(
+                f"adaptive_scaling_{threads}",
+                300_000,
+                1000,
+                threads,
+                True,
+            )
+
+            self.run_config(baseline, "fillrandom")
+            self.run_config(adaptive, "fillrandom")
+
+    # ------------------------------------------------------------
+    # Experiment 4: Mixed workload
+    # ------------------------------------------------------------
+    def run_mixed(self):
+        print("\n=== Experiment: Mixed Workload ===")
+
+        configs = [
+            BenchmarkConfig("baseline_mixed", 1_000_000, 1000, 8, False),
+            BenchmarkConfig("adaptive_mixed", 1_000_000, 1000, 8, True),
+        ]
+
+        for c in configs:
+            self.run_config(c, "readrandomwriterandom")
+
+    # ------------------------------------------------------------
+    # Experiment 5: Burst workload
+    # ------------------------------------------------------------
+    def run_burst(self):
+        print("\n=== Experiment: Burst ===")
+
+        configs = [
+            BenchmarkConfig("baseline_burst", 800_000, 1500, 16, False),
+            BenchmarkConfig(
+                "adaptive_burst", 800_000, 1500, 16, True, adaptive_sensitivity=2.5
+            ),
+        ]
+
+        for c in configs:
+            self.run_config(c, "overwrite")
+
+    # ------------------------------------------------------------
+    # Run all experiments
+    # ------------------------------------------------------------
+    def run_all(self):
+        self.run_waf()
+        self.run_latency()
+        self.run_scaling()
+        self.run_mixed()
+        self.run_burst()
+
+    # ------------------------------------------------------------
+    # Save results
+    # ------------------------------------------------------------
     def save(self, path):
+
         aggregated = aggregate_results(self.results)
 
         with open(path, "w") as f:
             json.dump({"raw": self.results, "aggregated": aggregated}, f, indent=2)
+
+        print(f"\nSaved results to {path}")
 
 
 def main():
