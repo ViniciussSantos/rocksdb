@@ -258,42 +258,49 @@ class BenchmarkRunner:
     def _parse_pidstat(self, file: Path):
         cpu_values = []
         with open(file) as f:
-            for line in f:
-                if "db_bench" not in line:
-                    continue
-                parts = line.split()
-                try:
-                    # Find the column that actually says %CPU to be safe
-                    # Or just use -1 to get the CPU index in a -u only run
-                    cpu_values.append(
-                        float(parts[-4])
-                    )  # %CPU is usually 4th from end in -u
-                except:
-                    continue
+            lines = f.readlines()
+            # Find the header to determine where %CPU is
+            header = []
+            for line in lines:
+                if "%CPU" in line:
+                    header = line.split()
+                    break
+
+            if not header:
+                return {}
+            cpu_idx = header.index("%CPU")
+
+            for line in lines:
+                if "db_bench" in line and "Average" not in line:
+                    parts = line.split()
+                    try:
+                        # Clean the comma and convert to float
+                        val = float(parts[cpu_idx].replace(',', '.'))
+                        cpu_values.append(val)
+                    except (ValueError, IndexError):
+                        continue
+
         if not cpu_values:
             return {}
-        return {
-            "cpu_avg": sum(cpu_values) / len(cpu_values),
-            "cpu_max": max(cpu_values),
-        }
+        return {"cpu_avg": np.mean(cpu_values), "cpu_max": np.max(cpu_values)}
 
     def _parse_iostat(self, file: Path):
         util_values = []
         with open(file) as f:
             for line in f:
                 parts = line.split()
-                # Lower the threshold to 15 to catch your 22-column output
+                # Your log shows 22 columns. Let's be safe and check for > 15.
+                # Also ensure it's a device line (doesn't start with a number/timestamp)
                 if len(parts) >= 15 and not parts[0][0].isdigit():
                     try:
-                        util_values.append(float(parts[-1]))  # %util is last
-                    except:
+                        # %util is always the very last column
+                        val = float(parts[-1].replace(',', '.'))
+                        util_values.append(val)
+                    except (ValueError, IndexError):
                         continue
         if not util_values:
             return {}
-        return {
-            "util_avg": sum(util_values) / len(util_values),
-            "util_max": max(util_values),
-        }
+        return {"util_avg": np.mean(util_values), "util_max": np.max(util_values)}
 
 
 class ExperimentSuite:
