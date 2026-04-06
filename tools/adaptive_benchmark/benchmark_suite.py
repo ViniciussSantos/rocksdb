@@ -6,7 +6,7 @@ import time
 import numpy as np
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Dict
+from typing import List
 import argparse
 import re
 
@@ -199,7 +199,7 @@ class BenchmarkRunner:
         iostat_file = self.output_dir / f"{name}_iostat.log"
 
         pidstat = subprocess.Popen(
-            ["pidstat", "-dur", "1"],
+            ["pidstat", "-u", "1"],
             stdout=open(pidstat_file, "w"),
             stderr=subprocess.DEVNULL,
         )
@@ -219,8 +219,10 @@ class BenchmarkRunner:
         pidstat.terminate()
         iostat.terminate()
 
+        pidstat.wait()
+        iostat.wait()
         # Give processes a moment to flush
-        time.sleep(1)
+        time.sleep(5)
 
         cpu_stats = self._parse_pidstat(pid_file)
         io_stats = self._parse_iostat(io_file)
@@ -228,42 +230,48 @@ class BenchmarkRunner:
         return {"cpu": cpu_stats, "io": io_stats}
 
     def _parse_output(self, file: Path):
-
         text = file.read_text()
 
         def extract(pattern):
             m = re.search(pattern, text, re.IGNORECASE)
             return float(m.group(1)) if m else 0.0
 
+        # Handle kops/sec or Mops/sec scaling
+        ops_val = extract(r"([\d\.]+)\s+(k|M)?ops/sec")
+        if "Mops/sec" in text:
+            ops_val *= 1_000_000
+        elif "kops/sec" in text:
+            ops_val *= 1_000
+
         return {
-            "ops_per_sec": extract(r"([\d\.eE\+\-]+)\s+ops/sec"),
+            "ops_per_sec": ops_val,
             "p50_latency_us": extract(r"P50.*?:\s+([\d\.]+)"),
             "p95_latency_us": extract(r"P95.*?:\s+([\d\.]+)"),
             "p99_latency_us": extract(r"P99[^\.].*?:\s+([\d\.]+)"),
             "p999_latency_us": extract(r"P99\.9.*?:\s+([\d\.]+)"),
             "avg_latency_us": extract(r"Average.*?:\s+([\d\.]+)"),
-            "write_amplification": extract(r"write amplification.*?([\d\.]+)"),
+            "write_amplification": extract(
+                r"(?:write amplification|Write Amp).*?([\d\.]+)"
+            ),
         }
 
     def _parse_pidstat(self, file: Path):
         cpu_values = []
-
         with open(file) as f:
             for line in f:
+                if "db_bench" not in line:
+                    continue
                 parts = line.split()
-
-                # Typical pidstat format:
-                # time UID PID %usr %system %CPU ...
-                if len(parts) > 7 and parts[0].count(":") == 2:
-                    try:
-                        cpu = float(parts[7])  # %CPU column
-                        cpu_values.append(cpu)
-                    except:  # noqa: E722
-                        continue
-
+                try:
+                    # Find the column that actually says %CPU to be safe
+                    # Or just use -1 to get the CPU index in a -u only run
+                    cpu_values.append(
+                        float(parts[-4])
+                    )  # %CPU is usually 4th from end in -u
+                except:
+                    continue
         if not cpu_values:
             return {}
-
         return {
             "cpu_avg": sum(cpu_values) / len(cpu_values),
             "cpu_max": max(cpu_values),
@@ -271,32 +279,18 @@ class BenchmarkRunner:
 
     def _parse_iostat(self, file: Path):
         util_values = []
-        read_kb = []
-        write_kb = []
-
         with open(file) as f:
             for line in f:
                 parts = line.split()
-
-                # Linux iostat -dx format
-                if (
-                    len(parts) >= 14
-                    and parts[0].startswith("sd")
-                    or parts[0].startswith("nvme")
-                ):
+                # Lower the threshold to 15 to catch your 22-column output
+                if len(parts) >= 15 and not parts[0][0].isdigit():
                     try:
-                        read_kb.append(float(parts[5]))  # rKB/s
-                        write_kb.append(float(parts[6]))  # wKB/s
-                        util_values.append(float(parts[-1]))  # %util
+                        util_values.append(float(parts[-1]))  # %util is last
                     except:
                         continue
-
         if not util_values:
             return {}
-
         return {
-            "read_kb_s_avg": sum(read_kb) / len(read_kb),
-            "write_kb_s_avg": sum(write_kb) / len(write_kb),
             "util_avg": sum(util_values) / len(util_values),
             "util_max": max(util_values),
         }
