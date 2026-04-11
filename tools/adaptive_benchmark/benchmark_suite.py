@@ -188,6 +188,7 @@ class BenchmarkRunner:
             self.db_bench_path,
             f"--benchmarks={benchmark_type},stats",
             "--statistics",
+            "--compression_type=none",
         ]
 
         cmd.extend(config.to_db_bench_args(str(db_path)))
