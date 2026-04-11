@@ -407,21 +407,28 @@ class ExperimentSuite:
     def run_waf(self):
         print("\n=== Experiment: Write Amplification ===")
 
-        configs = [
-            BenchmarkConfig("baseline_waf", 1_000_000, 1000, 1, False),
-            BenchmarkConfig(
-                "adaptive_alpha1", 1_000_000, 1000, 1, True, adaptive_sensitivity=1.0
-            ),
-            BenchmarkConfig(
-                "adaptive_alpha2", 1_000_000, 1000, 1, True, adaptive_sensitivity=2.0
-            ),
-            BenchmarkConfig(
-                "adaptive_alpha3", 1_000_000, 1000, 1, True, adaptive_sensitivity=3.0
-            ),
-        ]
+        alphas = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0]
 
-        for c in configs:
-            self.run_config(c, "fillrandom")
+        for alpha in alphas:
+            if alpha == 0.0:
+                config = BenchmarkConfig(
+                    "baseline_waf",
+                    1_000_000,
+                    1000,
+                    1,
+                    False,
+                )
+            else:
+                config = BenchmarkConfig(
+                    f"adaptive_alpha{alpha}",
+                    1_000_000,
+                    1000,
+                    1,
+                    True,
+                    adaptive_sensitivity=alpha,
+                )
+
+            self.run_config(config, "fillrandom")
 
     # ------------------------------------------------------------
     # Experiment 2: Latency under load
