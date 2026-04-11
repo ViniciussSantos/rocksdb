@@ -51,6 +51,7 @@ class BenchmarkConfig:
     value_size: int
     threads: int
     adaptive_enabled: bool
+    pinned: bool = True
 
     adaptive_sensitivity: float = 2.0
     adaptive_pmem_weight: float = 0.6
@@ -121,16 +122,13 @@ class BenchmarkRunner:
         self.enable_telemetry = enable_telemetry
 
     def run_benchmark(self, config: BenchmarkConfig, benchmark_type="fillrandom"):
-
         print(f"\n=== Running {config.name} ===")
-
         db_path = self.output_dir / f"db_{config.name}"
         if db_path.exists():
             subprocess.run(["rm", "-rf", str(db_path)])
         db_path.mkdir(parents=True)
 
-        # --- Warmup ---
-        self._warmup(db_path)
+        self._warmup(db_path, config.pinned)
 
         # --- Actual run ---
         cmd = self._build_cmd(config, benchmark_type, db_path)
@@ -160,16 +158,18 @@ class BenchmarkRunner:
 
         metrics = self._parse_output(output_file)
         metrics["duration_sec"] = duration
+        return {
+            "config": config.name,
+            "metrics": metrics,
+            "telemetry": telemetry,
+            "pinned": config.pinned,
+        }
 
-        return {"config": config.name, "metrics": metrics, "telemetry": telemetry}
+    def _warmup(self, db_path: Path, pinned: bool):
 
-    def _warmup(self, db_path: Path):
-        print("-> Warmup phase")
+        print(f"-> Warmup phase (Pinned: {pinned})")
 
         cmd = [
-            "taskset",
-            "-c",
-            self.cpu_cores,
             self.db_bench_path,
             f"--db={db_path}",
             "--benchmarks=fillrandom",
@@ -177,21 +177,23 @@ class BenchmarkRunner:
             "--threads=1",
         ]
 
+        if pinned:
+            cmd = ["taskset", "-c", self.cpu_cores] + cmd
+
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    def _build_cmd(self, config, benchmark_type, db_path):
+    def _build_cmd(self, config: BenchmarkConfig, benchmark_type, db_path):
 
         cmd = [
-            "taskset",
-            "-c",
-            self.cpu_cores,
             self.db_bench_path,
             f"--benchmarks={benchmark_type},stats",
             "--statistics",
             "--compression_type=none",
         ]
-
         cmd.extend(config.to_db_bench_args(str(db_path)))
+
+        if config.pinned:
+            cmd = ["taskset", "-c", self.cpu_cores] + cmd
         return cmd
 
     def _start_telemetry(self, name):
@@ -391,15 +393,25 @@ class ExperimentSuite:
     # ------------------------------------------------------------
     # Core execution helper
     # ------------------------------------------------------------
-    def run_config(self, config, benchmark):
-        for i in range(self.repeat):
-            print(f"\nRun {i + 1}/{self.repeat} - {config.name}")
+    def run_config(self, config: BenchmarkConfig, benchmark: str):
+        """Modified to run both pinned and unpinned variants."""
+        base_name = config.name
 
-            result = self.runner.run_benchmark(config, benchmark)
+        # Run variants
+        for is_pinned in [True, False]:
+            mode_str = "pinned" if is_pinned else "unpinned"
+            config.name = f"{base_name}_{mode_str}"
+            config.pinned = is_pinned
 
-            if result:
-                result["run_id"] = i + 1
-                self.results.append(result)
+            for i in range(self.repeat):
+                print(f"\nRun {i + 1}/{self.repeat} - {config.name}")
+                result = self.runner.run_benchmark(config, benchmark)
+                if result:
+                    result["run_id"] = i + 1
+                    self.results.append(result)
+
+        # Reset original name
+        config.name = base_name
 
     # ------------------------------------------------------------
     # Experiment 1: Write Amplification
