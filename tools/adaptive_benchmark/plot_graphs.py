@@ -45,10 +45,41 @@ def load_raw_df(path):
         }
 
         row.update(run["metrics"])
-        if "telemetry" in run and "cpu" in run["telemetry"]:
-            row["cpu_avg"] = run["telemetry"]["cpu"].get("cpu_avg", 0)
-        rows.append(row)
 
+        # Telemetry Parsing (Dynamic Device Detection)
+        if "telemetry" in run:
+            tel = run["telemetry"]
+            if "cpu" in tel:
+                row["cpu_avg"] = tel["cpu"].get("cpu_avg", 0)
+
+            if "io" in tel:
+                io_data = tel["io"]
+                active_dev = None
+                max_util = -1.0
+                # Identify the disk with the highest utilization (usually the DB disk)
+                for k, v in io_data.items():
+                    if k.endswith("_util_avg"):
+                        if v > max_util:
+                            max_util = v
+                            active_dev = k.replace("_util_avg", "")
+
+                if active_dev:
+                    row["io_util_avg"] = io_data.get(f"{active_dev}_util_avg", 0)
+                    # Convert KB/s to MB/s for standard reporting
+                    row["io_read_mb_s"] = (
+                        io_data.get(f"{active_dev}_read_kb_s", 0) / 1024.0
+                    )
+                    row["io_write_mb_s"] = (
+                        io_data.get(f"{active_dev}_write_kb_s", 0) / 1024.0
+                    )
+                else:
+                    row["io_util_avg"], row["io_read_mb_s"], row["io_write_mb_s"] = (
+                        0,
+                        0,
+                        0,
+                    )
+
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -303,6 +334,14 @@ def main():
             "caption": "Direct comparison of tail latency across environments.",
             "metric": "p99_latency_us",
         },
+        "io_utilization.png": {
+            "caption": "Average Disk Utilization percentage. High values indicate IO bottlenecks.",
+            "metric": "io_util_avg",
+        },
+        "io_write_throughput.png": {
+            "caption": "Disk Write throughput in MB/s. Shows physical write pressure.",
+            "metric": "io_write_mb_s",
+        },
     }
 
     # 1. Process Environments Separately
@@ -313,6 +352,22 @@ def main():
 
         if m_df.empty:
             continue
+
+        # Standard Performance & IO
+        barplot(
+            m_df,
+            "io_util_avg",
+            "Util %",
+            mode_dir / "io_utilization.png",
+            f"Disk Utilization ({mode})",
+        )
+        barplot(
+            m_df,
+            "io_write_mb_s",
+            "MB/s",
+            mode_dir / "io_write_throughput.png",
+            f"Write Throughput ({mode})",
+        )
 
         # Bar plots
         barplot(
