@@ -85,7 +85,7 @@ check_env() {
 run_validate() {
   log_info "Running validation test (quick sanity check)..."
 
-  python3 "$PYTHON_SUITE" \
+  python3 -u "$PYTHON_SUITE" \
     --db-bench "$DB_BENCH" \
     --output-dir "$RESULTS_DIR/validation" \
     --repeat 1 \
@@ -101,7 +101,7 @@ run_validate() {
 run_fast() {
   log_info "Starting FAST test (1 iteration, reduced ops)..."
 
-  python3 "$PYTHON_SUITE" \
+  python3 -u "$PYTHON_SUITE" \
     --db-bench "$DB_BENCH" \
     --output-dir "$RESULTS_DIR/fast_run" \
     --repeat 1 \
@@ -121,16 +121,9 @@ run_full() {
   log_info "  Warmup ops: $WARMUP_OPS"
   echo ""
 
-  read -p "This will take several hours. Continue? (y/n) " -n 1 -r
-  echo
-  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    log_info "Cancelled by user"
-    exit 0
-  fi
-
   mkdir -p "$RESULTS_DIR/full_run"
 
-  python3 "$PYTHON_SUITE" \
+  python3 -u "$PYTHON_SUITE" \
     --db-bench "$DB_BENCH" \
     --output-dir "$RESULTS_DIR/full_run" \
     --repeat "$REPEAT" \
@@ -145,7 +138,7 @@ run_experiment() {
   local exp_name=$1
   log_info "Running $exp_name experiment..."
 
-  python3 "$PYTHON_SUITE" \
+  python3 -u "$PYTHON_SUITE" \
     --db-bench "$DB_BENCH" \
     --output-dir "$RESULTS_DIR/${exp_name}_run" \
     --repeat "$REPEAT" \
