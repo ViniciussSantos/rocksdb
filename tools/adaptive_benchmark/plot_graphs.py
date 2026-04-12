@@ -16,6 +16,31 @@ import matplotlib.pyplot as plt
 import numpy as np
 import argparse
 
+LABEL_MAP = {
+    "ops_per_sec": "Throughput (Ops/sec)",
+    "p99_latency_us": "P99 Tail Latency (μs)",
+    "write_amplification": "Write Amplification Factor (WAF)",
+    "io_util_avg": "Disk Utilization (%)",
+    "io_write_mb_s": "Write Throughput (MB/s)",
+    "compaction_cpu_sec": "Compaction CPU Time (s)",
+    "throughput_per_cpu": "Efficiency (Ops/CPU-sec)",
+    "alpha": "Sensitivity Parameter (α)",
+    "config": "Configuration",
+    "pinned": "Execution Mode",
+}
+
+
+def clean_label(label):
+    return LABEL_MAP.get(label, label.replace("_", " ").title())
+
+
+def clean_config_name(name):
+    """Shortens ugly config keys for the legend."""
+    name = name.replace("adaptive_", "Adpt-").replace("baseline_", "Base-")
+    name = name.replace("alpha", "α=").replace("pmem", "P=").replace("cpu", "C=")
+    return name
+
+
 # ----------------------------
 # Style (Paper-Quality)
 # ----------------------------
@@ -27,7 +52,6 @@ sns.set_context("paper", font_scale=1.4)
 # Data Loading & Processing
 # ----------------------------
 def load_raw_df(path):
-    """Parses raw results to leverage Seaborn's automatic CI calculation."""
     with open(path) as f:
         data = json.load(f)
 
@@ -38,8 +62,8 @@ def load_raw_df(path):
         base_config = config_full.replace("_pinned", "").replace("_unpinned", "")
 
         row = {
-            "config_full": config_full,
-            "config": base_config,
+            "config_full": clean_config_name(config_full),
+            "config": clean_config_name(base_config),
             "pinned": "Pinned" if is_pinned else "Unpinned",
             "run_id": run.get("run_id", 1),
         }
@@ -121,69 +145,110 @@ def save(fig, path):
     plt.close(fig)
 
 
-def barplot(df, metric, ylabel, out, title):
-    fig = plt.figure(figsize=(10, 6))
-    ax = sns.barplot(
-        data=df, x="config", y=metric, palette="viridis", errorbar=("ci", 95)
+def barplot(df, metric, out, title):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.barplot(
+        data=df, x="config", y=metric, palette="viridis", errorbar=("ci", 95), ax=ax
     )
-    plt.title(title)
-    plt.ylabel(ylabel)
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=30, ha="right")
+    ax.set_title(title, pad=15, fontweight='bold')
+    ax.set_xlabel(clean_label("config"))
+    ax.set_ylabel(clean_label(metric))
+    plt.xticks(rotation=25, ha="right")
     save(fig, out)
 
 
-def comparison_plot(df, metric, ylabel, out, title):
-    fig = plt.figure(figsize=(12, 6))
-    ax = sns.barplot(data=df, x="config", y=metric, hue="pinned", errorbar=("ci", 95))
-    plt.title(title)
-    plt.ylabel(ylabel)
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=30, ha="right")
+def comparison_plot(df, metric, out, title):
+    """Shows Pinned vs Unpinned side-by-side."""
+    fig, ax = plt.subplots(figsize=(12, 6))
+    sns.barplot(data=df, x="config", y=metric, hue="pinned", errorbar=("ci", 95), ax=ax)
+    ax.set_title(title, pad=15, fontweight='bold')
+    ax.set_ylabel(clean_label(metric))
+    ax.set_xlabel(clean_label("config"))
+    plt.xticks(rotation=25, ha="right")
     save(fig, out)
 
 
-def scatter_mean(df, x, y, out, title):
-    """Uses mean values for scatter to prevent overlapping blob of points."""
-    mean_df = df.groupby("config")[[x, y]].mean().reset_index()
-    fig = plt.figure(figsize=(10, 6))
-    ax = sns.scatterplot(data=mean_df, x=x, y=y, hue="config", s=150, palette="tab10")
+def scatter_mean(df, x_metric, y_metric, out, title):
+    """Clean scatterplot with no text on points and external legend."""
+    mean_df = df.groupby("config")[[x_metric, y_metric]].mean().reset_index()
+    fig, ax = plt.subplots(figsize=(11, 6))
 
-    for _, row in mean_df.iterrows():
-        ax.text(row[x], row[y], f" {row['config']}", fontsize=10)
+    sns.scatterplot(
+        data=mean_df,
+        x=x_metric,
+        y=y_metric,
+        style="config",
+        hue="config",
+        s=150,
+        palette="tab10",
+        edgecolor="black",
+        ax=ax,
+    )
 
-    plt.title(title)
-    ax.legend(loc='center left', bbox_to_anchor=(1.25, 0.5), ncol=1)
+    ax.set_title(title, pad=15, fontweight='bold')
+    ax.set_xlabel(clean_label(x_metric))
+    ax.set_ylabel(clean_label(y_metric))
+    ax.legend(
+        title=clean_label("config"),
+        loc='center left',
+        bbox_to_anchor=(1.25, 0.5),
+        ncol=1,
+    )
     save(fig, out)
 
 
 def normalized_bar(df, metric, baseline_name, out, title):
+    # Map the baseline name to its cleaned version to find it in the current DF
+    clean_baseline = clean_config_name(baseline_name)
+
     means = df.groupby("config")[metric].mean()
-    if baseline_name not in means:
-        return
-    baseline_val = means[baseline_name]
+    if clean_baseline not in means.index:
+        # Fallback: check if the raw name is there
+        if baseline_name in means.index:
+            clean_baseline = baseline_name
+        else:
+            return
 
+    baseline_val = means[clean_baseline]
+
+    # Calculate normalization
     norm_df = df.copy()
-    norm_df[f"norm_{metric}"] = norm_df[metric] / baseline_val
+    norm_metric_name = f"norm_{metric}"
+    norm_df[norm_metric_name] = norm_df[metric] / baseline_val
 
-    fig = plt.figure(figsize=(10, 6))
-    ax = sns.barplot(
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Plotting with the same professional palette
+    sns.barplot(
         data=norm_df,
         x="config",
-        y=f"norm_{metric}",
+        y=norm_metric_name,
         palette="coolwarm",
         errorbar=("ci", 95),
+        ax=ax,
     )
-    plt.axhline(1, color='red', linestyle='--')
-    plt.title(title)
-    plt.ylabel(f"Normalized {metric} (Baseline=1)")
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=30, ha="right")
+
+    # Clean up the visuals
+    plt.axhline(1, color='red', linestyle='--', alpha=0.7, label="Baseline (1.0)")
+
+    ax.set_title(title, pad=15, fontweight='bold')
+    ax.set_xlabel(clean_label("config"))
+
+    # Create a nice Y-axis label: "Relative Throughput (Baseline=1.0)"
+    readable_metric = clean_label(metric).split('(')[0].strip()
+    ax.set_ylabel(f"Relative {readable_metric} (Baseline=1.0)")
+
+    plt.xticks(rotation=25, ha="right")
+
     save(fig, out)
 
 
-def lineplot(df, x, y, ylabel, out, title):
+def lineplot(df, x, y, out, title):
     fig = plt.figure(figsize=(10, 6))
-    sns.lineplot(data=df, x=x, y=y, marker="o", errorbar=("ci", 95))
+    ax = sns.lineplot(data=df, x=x, y=y, marker="o", errorbar=("ci", 95))
     plt.title(title)
-    plt.ylabel(ylabel)
+    ax.set_xlabel(clean_label(x))
+    ax.set_ylabel(clean_label(y))
     save(fig, out)
 
 
@@ -202,7 +267,7 @@ def multi_lineplot_normalized(df, x, metrics, labels, out, title):
     plt.axhline(1, color='black', linestyle='--', alpha=0.5)
     plt.title(title)
     plt.xlabel("Alpha (Sensitivity)")
-    plt.ylabel("Normalized Value (Baseline = 1.0)")
+    plt.ylabel("Relative Value (Baseline = 1.0)")
     plt.legend()
     save(fig, out)
 
@@ -260,7 +325,6 @@ def main():
     root = Path(args.output_dir)
     root.mkdir(parents=True, exist_ok=True)
 
-    # Master caption dictionary enriched with target metrics for the LLM
     FIGURE_CAPTIONS = {
         "throughput.png": {
             "caption": "Overall throughput (operations per second) across configurations. Higher is better.",
@@ -323,7 +387,7 @@ def main():
             "metric": "p99_latency_us",
         },
         "alpha_tradeoff.png": {
-            "caption": "Normalized trade-off overlay across α values. Identifies the optimal operating region.",
+            "caption": "Relative trade-off overlay across α values. Identifies the optimal operating region.",
             "metric": None,
         },
         "bias_comparison_throughput.png": {
@@ -357,14 +421,12 @@ def main():
         barplot(
             m_df,
             "io_util_avg",
-            "Util %",
             mode_dir / "io_utilization.png",
             f"Disk Utilization ({mode})",
         )
         barplot(
             m_df,
             "io_write_mb_s",
-            "MB/s",
             mode_dir / "io_write_throughput.png",
             f"Write Throughput ({mode})",
         )
@@ -373,38 +435,31 @@ def main():
         barplot(
             m_df,
             "ops_per_sec",
-            "Ops/sec",
             mode_dir / "throughput.png",
             f"Throughput ({mode})",
         )
         barplot(
             m_df,
             "p99_latency_us",
-            "P99 Latency (us)",
             mode_dir / "latency_p99.png",
             f"Tail Latency ({mode})",
         )
-        barplot(
-            m_df, "write_amplification", "WAF", mode_dir / "waf.png", f"WAF ({mode})"
-        )
+        barplot(m_df, "write_amplification", mode_dir / "waf.png", f"WAF ({mode})")
         barplot(
             m_df,
             "compaction_cpu_sec",
-            "CPU Sec",
             mode_dir / "compaction_cpu.png",
             f"Compaction CPU Time ({mode})",
         )
         barplot(
             m_df,
             "compaction_count",
-            "Count",
             mode_dir / "compaction_count.png",
             f"Compaction Count ({mode})",
         )
         barplot(
             m_df,
             "compaction_time_ratio",
-            "Ratio",
             mode_dir / "compaction_ratio.png",
             f"Compaction Time Ratio ({mode})",
         )
@@ -413,14 +468,12 @@ def main():
         barplot(
             m_df,
             "throughput_per_cpu",
-            "Ops/sec per CPU sec",
             mode_dir / "cpu_efficiency.png",
             f"CPU Efficiency ({mode})",
         )
         barplot(
             m_df,
             "throughput_per_compaction",
-            "Ops/sec per compaction",
             mode_dir / "eff_compaction.png",
             f"Compaction Efficiency ({mode})",
         )
@@ -447,14 +500,14 @@ def main():
             "ops_per_sec",
             "baseline_waf",
             mode_dir / "norm_throughput.png",
-            f"Normalized Throughput ({mode})",
+            f"Relative Throughput ({mode})",
         )
         normalized_bar(
             m_df,
             "write_amplification",
             "baseline_waf",
             mode_dir / "norm_waf.png",
-            f"Normalized WAF ({mode})",
+            f"Relative WAF ({mode})",
         )
 
         # Sensitivity Analysis
@@ -464,7 +517,6 @@ def main():
                 s_df,
                 "alpha",
                 "ops_per_sec",
-                "Ops/sec",
                 mode_dir / "alpha_throughput.png",
                 f"Throughput Sensitivity ({mode})",
             )
@@ -472,7 +524,6 @@ def main():
                 s_df,
                 "alpha",
                 "write_amplification",
-                "WAF",
                 mode_dir / "alpha_waf.png",
                 f"WAF Sensitivity ({mode})",
             )
@@ -480,7 +531,6 @@ def main():
                 s_df,
                 "alpha",
                 "p99_latency_us",
-                "P99 Latency",
                 mode_dir / "alpha_latency.png",
                 f"Latency Sensitivity ({mode})",
             )
@@ -491,7 +541,7 @@ def main():
                 ["ops_per_sec", "write_amplification", "p99_latency_us"],
                 ["Throughput", "WAF", "P99 Latency"],
                 mode_dir / "alpha_tradeoff.png",
-                f"Normalized Tradeoff Dynamics ({mode})",
+                f"Relative Tradeoff Dynamics ({mode})",
             )
 
         # Generate the LLM Context Report for this environment
@@ -503,14 +553,12 @@ def main():
     comparison_plot(
         df,
         "ops_per_sec",
-        "Throughput (ops/sec)",
         bias_dir / "bias_comparison_throughput.png",
         "Scheduling Impact: Throughput",
     )
     comparison_plot(
         df,
         "p99_latency_us",
-        "P99 Latency (us)",
         bias_dir / "bias_comparison_latency.png",
         "Scheduling Impact: Tail Latency",
     )
